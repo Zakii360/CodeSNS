@@ -6,65 +6,48 @@
 <style>
 body{
   margin:0;
-  font-family: system-ui, -apple-system, Arial;
+  font-family:system-ui;
   background:#0b0f14;
   color:#e6edf3;
 }
 
-/* layout */
 .layout{
   display:grid;
-  grid-template-columns: 240px 600px 320px;
+  grid-template-columns:240px 600px 320px;
   justify-content:center;
-  gap:20px;
 }
 
-/* left */
-.left{
+.left,.right{
   padding:16px;
   position:sticky;
   top:0;
   height:100vh;
 }
 
-.logo{
-  font-size:20px;
-  font-weight:700;
-  margin-bottom:20px;
-}
-
-/* center */
 .center{
   border-left:1px solid #1f2a37;
   border-right:1px solid #1f2a37;
   min-height:100vh;
 }
 
-/* right */
-.right{
-  padding:16px;
+.logo{
+  font-size:20px;
+  font-weight:800;
+  margin-bottom:20px;
 }
 
-/* cards */
 .card{
   background:#0f1620;
   border:1px solid #1f2a37;
   border-radius:14px;
   padding:12px;
   margin:10px;
-  transition:0.15s;
 }
 
-.card:hover{
-  border-color:#2b3b52;
-}
-
-/* post */
 .post-header{
   display:flex;
   gap:10px;
   align-items:center;
-  margin-bottom:8px;
 }
 
 .avatar{
@@ -73,14 +56,8 @@ body{
   border-radius:50%;
 }
 
-.name{
-  font-weight:700;
-}
-
-.handle{
-  color:#7aa2ff;
-  font-size:12px;
-}
+.name{font-weight:700;}
+.handle{color:#7aa2ff;font-size:12px;}
 
 textarea,input{
   width:100%;
@@ -101,25 +78,24 @@ button{
   cursor:pointer;
 }
 
-button:hover{
-  background:#2563eb;
-}
+button:hover{background:#2563eb;}
 
-.tabbar{
+/* onboarding */
+.modal{
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,0.7);
   display:flex;
-  border-bottom:1px solid #1f2a37;
+  align-items:center;
+  justify-content:center;
 }
 
-.tab{
-  flex:1;
-  text-align:center;
-  padding:12px;
-  cursor:pointer;
-}
-
-.tab.active{
-  border-bottom:2px solid #1d4ed8;
-  font-weight:600;
+.modal-box{
+  width:340px;
+  background:#0f1620;
+  border:1px solid #1f2a37;
+  padding:16px;
+  border-radius:14px;
 }
 </style>
 
@@ -134,64 +110,130 @@ button:hover{
 <script>
 const sb = supabase.createClient(
   "https://ypkylqncvulitdfvndsy.supabase.co",
-  "PASTE_ANON_KEY"
+  "PeyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlwa3lscW5jdnVsaXRkZnZuZHN5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1ODIyMzcsImV4cCI6MjA5ODE1ODIzN30.ChFkLwx4Q_pA7c_Muy2kMHK8DB4LrPjfLUosgJsWGt8"
 );
 
 /* ======================
-   USER SYSTEM (NO AUTH)
+   GITHUB AUTH
 ====================== */
 
-async function createUser(){
-  const username = prompt("Choose username (@handle)");
-  const display = prompt("Display name");
-
-  const { data } = await sb.from("sns_profiles").insert({
-    username,
-    display_name: display,
-    avatar_url: "https://api.dicebear.com/7.x/bottts/svg?seed="+username
-  }).select().single();
-
-  localStorage.setItem("uid", data.id);
-  return data;
+async function login(){
+  await sb.auth.signInWithOAuth({
+    provider:"github",
+    options:{
+      redirectTo: window.location.origin
+    }
+  });
 }
 
-async function getUser(){
-  const id = localStorage.getItem("uid");
-  if(!id) return null;
+async function getAuthUser(){
+  const { data } = await sb.auth.getUser();
+  return data.user;
+}
 
+/* ======================
+   PROFILE SYSTEM
+====================== */
+
+async function ensureProfile(authUser){
+  const username = authUser.user_metadata.user_name;
+  const avatar = authUser.user_metadata.avatar_url;
+
+  let { data } = await sb
+    .from("sns_profiles")
+    .select("*")
+    .eq("username",username)
+    .single();
+
+  if(!data){
+    await sb.from("sns_profiles").insert({
+      username,
+      display_name: username,
+      avatar_url: avatar
+    });
+  }
+}
+
+/* ======================
+   GET PROFILE
+====================== */
+
+async function getProfile(username){
   const { data } = await sb
     .from("sns_profiles")
     .select("*")
-    .eq("id",id)
+    .eq("username",username)
     .single();
 
   return data;
 }
 
 /* ======================
+   ONBOARDING
+====================== */
+
+function onboarding(profile){
+  document.getElementById("app").innerHTML=`
+    <div class="modal">
+      <div class="modal-box">
+
+        <h2>Finish setup</h2>
+
+        <p><b>@${profile.username}</b></p>
+
+        <input id="name" value="${profile.display_name}" />
+        <input id="avatar" value="${profile.avatar_url}" />
+
+        <button onclick="save('${profile.username}')">
+          Continue
+        </button>
+
+      </div>
+    </div>
+  `;
+}
+
+async function save(username){
+  const name = document.getElementById("name").value;
+  const avatar = document.getElementById("avatar").value;
+
+  await sb
+    .from("sns_profiles")
+    .update({
+      display_name:name,
+      avatar_url:avatar
+    })
+    .eq("username",username);
+
+  init();
+}
+
+/* ======================
    POSTS
 ====================== */
 
-async function loadFeed(tab="for_you"){
-  const user = await getUser();
-
-  let query = sb
+async function loadFeed(){
+  const { data } = await sb
     .from("sns_posts")
     .select("*, sns_profiles(username, display_name, avatar_url)")
     .order("created_at",{ascending:false});
 
-  const { data } = await query;
-
-  render(user, data);
+  render(data);
 }
 
 async function post(){
-  const user = await getUser();
-  const txt = document.getElementById("postbox").value;
+  const auth = await getAuthUser();
+  const content = document.getElementById("postbox").value;
+
+  const { data: profile } = await sb
+    .from("sns_profiles")
+    .select("*")
+    .eq("username",auth.user_metadata.user_name)
+    .single();
 
   await sb.from("sns_posts").insert({
-    user_id:user.id,
-    content:txt
+    user_id:profile.id,
+    content
   });
 
   loadFeed();
@@ -202,50 +244,36 @@ async function post(){
 ====================== */
 
 async function follow(targetId){
-  const user = await getUser();
+  const auth = await getAuthUser();
+
+  const { data: me } = await sb
+    .from("sns_profiles")
+    .select("*")
+    .eq("username",auth.user_metadata.user_name)
+    .single();
 
   await sb.from("sns_follows").insert({
-    follower_id:user.id,
+    follower_id:me.id,
     following_id:targetId
   });
 }
 
 /* ======================
-   LIKE
+   UI
 ====================== */
 
-async function like(postId){
-  const user = await getUser();
-
-  await sb.from("sns_likes").insert({
-    user_id:user.id,
-    post_id:postId
-  });
-}
-
-/* ======================
-   UI RENDER
-====================== */
-
-function render(user, posts){
-  document.getElementById("app").innerHTML = `
+function render(posts){
+  document.getElementById("app").innerHTML=`
   <div class="layout">
 
-    <!-- LEFT -->
     <div class="left">
       <div class="logo">🐦 CodeSNS</div>
+      <button onclick="login()">Login with GitHub</button>
       <p>Home</p>
       <p>Explore</p>
-      <p>Profile</p>
     </div>
 
-    <!-- CENTER -->
     <div class="center">
-
-      <div class="tabbar">
-        <div class="tab active">For You</div>
-        <div class="tab">Following</div>
-      </div>
 
       <div class="card">
         <textarea id="postbox" placeholder="What’s happening?"></textarea>
@@ -265,7 +293,6 @@ function render(user, posts){
 
           <p>${p.content}</p>
 
-          <button onclick="like('${p.id}')">Like</button>
           <button onclick="follow('${p.user_id}')">Follow</button>
 
         </div>
@@ -273,21 +300,12 @@ function render(user, posts){
 
     </div>
 
-    <!-- RIGHT -->
     <div class="right">
-
       <div class="card">
         <h3>Trends</h3>
-        <p>#devbuilds</p>
-        <p>#supabaseapps</p>
-        <p>#indiedev</p>
+        <p>#buildinpublic</p>
+        <p>#githubdevs</p>
       </div>
-
-      <div class="card">
-        <h3>Who to follow</h3>
-        <p>Suggested devs coming soon</p>
-      </div>
-
     </div>
 
   </div>
@@ -295,14 +313,31 @@ function render(user, posts){
 }
 
 /* ======================
-   INIT
+   INIT FLOW
 ====================== */
 
 async function init(){
-  let user = await getUser();
+  const auth = await getAuthUser();
 
-  if(!user){
-    user = await createUser();
+  if(!auth){
+    document.getElementById("app").innerHTML=`
+      <div class="modal">
+        <div class="modal-box">
+          <h2>CodeSNS</h2>
+          <button onclick="login()">Login with GitHub</button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  await ensureProfile(auth);
+
+  const profile = await getProfile(auth.user_metadata.user_name);
+
+  if(!profile.display_name){
+    onboarding(profile);
+    return;
   }
 
   loadFeed();
