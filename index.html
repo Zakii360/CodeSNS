@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>CodeSNS</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: monospace;
+      background: #0b0f14;
+      color: #d6e1ff;
+    }
+
+    header {
+      padding: 14px;
+      border-bottom: 1px solid #1c2633;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .container {
+      display: flex;
+      max-width: 1000px;
+      margin: auto;
+    }
+
+    .sidebar {
+      width: 220px;
+      padding: 12px;
+      border-right: 1px solid #1c2633;
+    }
+
+    .feed {
+      flex: 1;
+      padding: 12px;
+    }
+
+    .post {
+      border: 1px solid #1c2633;
+      padding: 10px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+    }
+
+    textarea, input {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 8px;
+      background: #0f1620;
+      border: 1px solid #243244;
+      color: white;
+    }
+
+    button {
+      background: #3b82f6;
+      border: none;
+      padding: 8px 12px;
+      color: white;
+      cursor: pointer;
+      border-radius: 6px;
+    }
+
+    .login-box {
+      text-align: center;
+      margin-top: 80px;
+    }
+  </style>
+</head>
+
+<body>
+
+<header>
+  <div>🐦 CodeSNS</div>
+  <div id="user">Not logged in</div>
+</header>
+
+<div id="app"></div>
+
+<!-- Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+/* =========================
+   Supabase config 
+========================= */
+
+const SUPABASE_URL = "https://tvxugmumfvgnvjacwwfz.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2eHVnbXVtZnZnbnZqYWN3d2Z6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3NjQ1MzEsImV4cCI6MjA5NjM0MDUzMX0.76wR9dblt8W9u-OioqQH7NOethNq1BMfjTDl9xcpYYI";
+
+const { createClient } = supabase;
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/* =========================
+   AUTH
+========================= */
+
+async function login() {
+  await sb.auth.signInWithOAuth({
+    provider: "github",
+    options: {
+      redirectTo: window.location.origin
+    }
+  });
+}
+
+async function logout() {
+  await sb.auth.signOut();
+  location.reload();
+}
+
+async function getUser() {
+  const { data } = await sb.auth.getUser();
+  return data.user;
+}
+
+/* =========================
+   PROFILE AUTO-CREATE
+========================= */
+
+async function ensureProfile(user) {
+  if (!user) return;
+
+  const { data } = await sb
+    .from("sns_profiles")
+    .select("*")
+    .eq("id", user.id)
+    .single();
+
+  if (!data) {
+    await sb.from("sns_profiles").insert({
+      id: user.id,
+      username: user.user_metadata.user_name || "dev",
+      avatar_url: user.user_metadata.avatar_url
+    });
+  }
+}
+
+/* =========================
+   POSTS
+========================= */
+
+async function loadPosts() {
+  const { data } = await sb
+    .from("sns_posts")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  document.getElementById("feed").innerHTML = (data || []).map(p => `
+    <div class="post">
+      <b>Post</b>
+      <p>${p.content}</p>
+      ${p.repo_url ? `<p>🔗 ${p.repo_url}</p>` : ""}
+      ${p.code_snippet ? `<pre>${p.code_snippet}</pre>` : ""}
+    </div>
+  `).join("");
+}
+
+async function createPost(user) {
+  const content = document.getElementById("content").value;
+  const repo = document.getElementById("repo").value;
+  const code = document.getElementById("code").value;
+
+  await sb.from("sns_posts").insert({
+    user_id: user.id,
+    content,
+    repo_url: repo || null,
+    code_snippet: code || null
+  });
+
+  loadPosts();
+}
+
+/* =========================
+   UI RENDER
+========================= */
+
+function renderLoggedOut() {
+  document.getElementById("app").innerHTML = `
+    <div class="login-box">
+      <h2>Welcome to CodeSNS</h2>
+      <p>Dev-only social network</p>
+      <button onclick="login()">Login with GitHub</button>
+    </div>
+  `;
+}
+
+function renderApp(user) {
+  document.getElementById("user").innerHTML = `
+    ${user.email || user.user_metadata.user_name}
+    <button onclick="logout()">Logout</button>
+  `;
+
+  document.getElementById("app").innerHTML = `
+    <div class="container">
+
+      <div class="sidebar">
+        <h3>Nav</h3>
+        <p>Feed</p>
+        <p>Repos</p>
+        <p>Profile</p>
+      </div>
+
+      <div class="feed">
+
+        <div>
+          <textarea id="content" placeholder="Share a build..."></textarea>
+          <input id="repo" placeholder="GitHub repo URL (optional)" />
+          <input id="code" placeholder="Code snippet (optional)" />
+          <button id="postBtn">Post</button>
+        </div>
+
+        <div id="feed"></div>
+      </div>
+
+    </div>
+  `;
+
+  document.getElementById("postBtn").onclick = () => createPost(user);
+
+  loadPosts();
+}
+
+/* =========================
+   INIT
+========================= */
+
+async function init() {
+  const user = await getUser();
+
+  if (!user) {
+    renderLoggedOut();
+    return;
+  }
+
+  await ensureProfile(user);
+  renderApp(user);
+}
+
+init();
+</script>
+
+</body>
+</html>
