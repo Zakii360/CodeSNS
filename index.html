@@ -4,265 +4,249 @@
 <title>CodeSNS</title>
 
 <style>
-body {
+body{
   margin:0;
-  font-family: monospace;
+  font-family:system-ui;
   background:#0b0f14;
-  color:#d6e1ff;
+  color:#e6edf3;
 }
 
-header {
-  padding:14px;
-  border-bottom:1px solid #1c2633;
-  display:flex;
-  justify-content:space-between;
-}
-
-.container {
-  display:flex;
-  max-width:1000px;
+.center{
+  max-width:650px;
   margin:auto;
 }
 
-.sidebar {
-  width:220px;
-  border-right:1px solid #1c2633;
-  padding:10px;
-}
-
-.feed {
-  flex:1;
-  padding:10px;
-}
-
-.post {
-  border:1px solid #1c2633;
-  padding:10px;
-  margin-bottom:10px;
-  border-radius:8px;
-}
-
-textarea,input {
-  width:100%;
-  padding:8px;
-  margin-bottom:8px;
+.card{
   background:#0f1620;
-  border:1px solid #243244;
-  color:white;
+  border:1px solid #1f2a37;
+  border-radius:14px;
+  padding:14px;
+  margin-bottom:12px;
 }
 
-button {
-  background:#3b82f6;
+textarea,input{
+  width:100%;
+  padding:10px;
+  background:#0f1620;
+  border:1px solid #2a3a4d;
+  color:white;
+  border-radius:10px;
+}
+
+button{
+  background:#2563eb;
   border:none;
   padding:8px 12px;
   color:white;
+  border-radius:10px;
   cursor:pointer;
-  border-radius:6px;
 }
 
-.avatar {
+.post-header{
+  display:flex;
+  gap:10px;
+  align-items:center;
+}
+
+.avatar{
   width:40px;
   height:40px;
   border-radius:50%;
 }
 
-.big {
-  width:80px;
-  height:80px;
+.name{
+  font-weight:700;
 }
 
-.handle {
+.handle{
   color:#7aa2ff;
   font-size:12px;
 }
+
+a{color:inherit;text-decoration:none;}
 </style>
 
 </head>
 
 <body>
 
-<header>
-  <div>🐦 CodeSNS</div>
-  <div id="user"></div>
-</header>
-
 <div id="app"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <script>
-const SUPABASE_URL = "https://tvxugmumfvgnvjacwwfz.supabase.co";
-const SUPABASE_ANON_KEY = "PASTE_KEY_HERE";
-
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const sb = supabase.createClient(
+  "https://tvxugmumfvgnvjacwwfz.supabase.co",
+  "PASTE_ANON_KEY"
+);
 
 /* =========================
-   AUTH
+   AUTH (GITHUB AUTO)
 ========================= */
 
-async function login() {
+async function login(){
   await sb.auth.signInWithOAuth({
     provider:"github",
     options:{ redirectTo: window.location.origin }
   });
 }
 
-async function getUser() {
+async function user(){
   const { data } = await sb.auth.getUser();
   return data.user;
 }
 
 /* =========================
-   PROFILE
+   PROFILE AUTO CREATE
 ========================= */
 
-async function getProfile(user) {
-  const { data } = await sb
+async function ensureProfile(u){
+  const username = u.user_metadata.user_name;
+  const avatar = u.user_metadata.avatar_url;
+
+  let { data } = await sb
     .from("sns_profiles")
     .select("*")
-    .eq("id", user.id)
+    .eq("id",u.id)
+    .single();
+
+  if(!data){
+    await sb.from("sns_profiles").insert({
+      id:u.id,
+      username,
+      display_name:username,
+      avatar_url:avatar,
+      onboarding_complete:false
+    });
+  }
+}
+
+/* =========================
+   GET PROFILE
+========================= */
+
+async function getProfile(uid){
+  let { data } = await sb
+    .from("sns_profiles")
+    .select("*")
+    .eq("id",uid)
     .single();
 
   return data;
 }
 
-async function createProfile(user) {
-  await sb.from("sns_profiles").insert({
-    id: user.id,
-    username: user.user_metadata.user_name,
-    display_name: user.user_metadata.user_name,
-    avatar_url: user.user_metadata.avatar_url,
-    onboarding_complete: false
-  });
+/* =========================
+   ONBOARDING
+========================= */
+
+function onboarding(profile){
+  document.getElementById("app").innerHTML=`
+    <div class="center">
+      <h2>Welcome to CodeSNS</h2>
+
+      <div class="card">
+        <p><b>@${profile.username}</b></p>
+
+        <input id="name" value="${profile.display_name}" />
+        <input id="avatar" value="${profile.avatar_url}" />
+
+        <button onclick="finish('${profile.id}')">
+          Finish Setup
+        </button>
+      </div>
+    </div>
+  `;
 }
 
-async function completeOnboarding(userId) {
+async function finish(id){
   const name = document.getElementById("name").value;
   const avatar = document.getElementById("avatar").value;
 
   await sb.from("sns_profiles")
     .update({
-      display_name: name,
-      avatar_url: avatar,
-      onboarding_complete: true
+      display_name:name,
+      avatar_url:avatar,
+      onboarding_complete:true
     })
-    .eq("id", userId);
+    .eq("id",id);
 
   init();
-}
-
-/* =========================
-   ONBOARDING UI
-========================= */
-
-function onboarding(user) {
-  document.getElementById("app").innerHTML = `
-    <div style="max-width:500px;margin:60px auto;">
-      <h2>Welcome to CodeSNS</h2>
-
-      <p>GitHub: @${user.user_metadata.user_name}</p>
-
-      <input id="name" placeholder="Display name (e.g. Linus)" />
-      <input id="avatar" value="${user.user_metadata.avatar_url}" placeholder="Avatar URL" />
-
-      <button onclick="completeOnboarding('${user.id}')">
-        Finish Setup
-      </button>
-    </div>
-  `;
 }
 
 /* =========================
    FEED
 ========================= */
 
-async function loadFeed(user) {
+async function loadFeed(){
   const { data } = await sb
     .from("sns_posts")
     .select("*, sns_profiles(username, display_name, avatar_url)")
-    .order("created_at", { ascending:false });
+    .order("created_at",{ascending:false});
 
-  document.getElementById("app").innerHTML = `
-    <div class="container">
+  document.getElementById("app").innerHTML=`
+    <div class="center">
 
-      <div class="sidebar">
-        <p>Feed</p>
-        <p>Profile</p>
+      <div class="card">
+        <textarea id="postbox" placeholder="What are you building?"></textarea>
+        <button onclick="post()">Post</button>
       </div>
 
-      <div class="feed">
-
-        <div>
-          <textarea id="content" placeholder="Share a build..."></textarea>
-          <button onclick="post('${user.id}')">Post</button>
-        </div>
-
-        ${data.map(p => `
-          <div class="post">
-            <div style="display:flex;gap:10px;align-items:center;">
-              <img class="avatar" src="${p.sns_profiles.avatar_url}" />
-              <div>
-                <b>${p.sns_profiles.display_name}</b><br>
-                <span class="handle">@${p.sns_profiles.username}</span>
-              </div>
+      ${data.map(p=>`
+        <div class="card">
+          <div class="post-header">
+            <img class="avatar" src="${p.sns_profiles.avatar_url}">
+            <div>
+              <div class="name">${p.sns_profiles.display_name}</div>
+              <div class="handle">@${p.sns_profiles.username}</div>
             </div>
-
-            <p>${p.content}</p>
           </div>
-        `).join("")}
 
-      </div>
+          <p>${p.content}</p>
+        </div>
+      `).join("")}
+
     </div>
   `;
 }
 
-/* =========================
-   POST
-========================= */
-
-async function post(userId) {
-  const content = document.getElementById("content").value;
+async function post(){
+  const u = await user();
+  const content = document.getElementById("postbox").value;
 
   await sb.from("sns_posts").insert({
-    user_id: userId,
+    user_id:u.id,
     content
   });
 
-  init();
+  loadFeed();
 }
 
 /* =========================
    INIT FLOW
 ========================= */
 
-async function init() {
-  const user = await getUser();
+async function init(){
+  const u = await user();
 
-  if (!user) {
-    document.getElementById("app").innerHTML = `
-      <div style="text-align:center;margin-top:80px;">
-        <h2>CodeSNS</h2>
+  if(!u){
+    document.getElementById("app").innerHTML=`
+      <div class="center" style="text-align:center;margin-top:100px;">
+        <h1>CodeSNS</h1>
         <button onclick="login()">Login with GitHub</button>
       </div>
     `;
     return;
   }
 
-  let profile = await getProfile(user);
+  await ensureProfile(u);
+  const profile = await getProfile(u.id);
 
-  if (!profile) {
-    await createProfile(user);
-    profile = await getProfile(user);
-  }
-
-  document.getElementById("user").innerText = "@" + profile.username;
-
-  if (!profile.onboarding_complete) {
-    onboarding(user);
+  if(!profile.onboarding_complete){
+    onboarding(profile);
     return;
   }
 
-  loadFeed(user);
+  loadFeed();
 }
 
 init();
