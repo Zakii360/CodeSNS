@@ -68,8 +68,9 @@ window.logout = async function() {
     renderApp();
 }
 
+// FIX: Removed TOKEN_REFRESHED so modals don't close when returning to the tab
 sb.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') checkAuth();
+    if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') checkAuth();
 });
 
 // ==========================================
@@ -371,13 +372,15 @@ window.verifyDomain = async function() {
             method: 'POST'
         });
         
-        if (data.success) {
+        if (error) throw new Error(error.context?.error || 'DNS record not found. Please ensure you added the TXT record correctly.');
+        
+        if (data && data.success) {
             statusEl.className = 'dns-status success';
             statusEl.innerText = 'Domain verified successfully!';
             currentUser.domain_verified = true;
             setTimeout(() => { closeEditProfile(); renderApp(); }, 1500);
         } else {
-            throw new Error(data.error || 'Verification failed');
+            throw new Error(data?.error || 'Verification failed');
         }
     } catch (error) {
         statusEl.className = 'dns-status error';
