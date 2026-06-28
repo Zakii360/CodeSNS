@@ -577,3 +577,26 @@ body {
 .composer-types { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
 .type-btn { padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; border: 1px solid var(--border-medium); background: transparent; color: var(--text-muted); cursor: pointer; transition: var(--transition); }
 .type-btn.active { background: var(--accent-primary); color: #000; border-color: var(--accent-primary); }
+
+/* Notifications */
+.notif-dropdown { position: absolute; top: 55px; left: 0; width: 360px; background: var(--bg-surface); border: 1px solid var(--border-medium); border-radius: var(--radius-md); box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 100; max-height: 500px; overflow-y: auto; display: none; }
+.notif-dropdown.active { display: block; }
+.notif-item { display: flex; gap: 0.75rem; padding: 1rem; border-bottom: 1px solid var(--border-light); cursor: pointer; transition: var(--transition); }
+.notif-item:hover { background: var(--bg-hover); }
+.notif-item.unread { background: rgba(0, 212, 255, 0.05); }
+.notif-dot { width: 8px; height: 8px; background: var(--accent-primary); border-radius: 50%; align-self: center; }
+
+/* Profile UI Polish */
+.profile-header { padding-bottom: 1rem; }
+.profile-meta-row { display: flex; gap: 1.5rem; padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-light); color: var(--text-muted); font-size: 0.9rem; }
+.profile-meta-item { display: flex; align-items: center; gap: 0.5rem; }
+.profile-meta-item svg { width: 16px; height: 16px; }
+.profile-stats-row { display: flex; gap: 2rem; padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-light); }
+.profile-stat { font-weight: 700; font-size: 0.95rem; }
+.profile-stat span { color: var(--text-muted); font-weight: 500; margin-left: 0.25rem; }
+
+/* Repo Stats Polish */
+.repo-stat svg { width: 14px; height: 14px; }
+
+/* Action Icons Polished */
+.action-btn svg { stroke-width: 1.8; }
