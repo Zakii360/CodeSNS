@@ -15,6 +15,18 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 const app = document.getElementById('app');
 let currentUser = null;
 let currentView = 'feed'; 
+let selectedImageFile = null;
+let devTip = "Use `git commit --amend` to modify your most recent commit without creating a new one."; // Fallback
+
+// Fetch AI Tip on load
+async function fetchDevTip() {
+    try {
+        const { data, error } = await sb.functions.invoke('groq-tip');
+        if (!error && data.tip) {
+            devTip = data.tip;
+        }
+    } catch (e) { console.log("Edge function not ready or missing key"); }
+}
 
 // ==========================================
 // 2. AUTH & ROUTING
@@ -24,7 +36,6 @@ async function checkAuth() {
     if (session) {
         let { data: profile } = await sb.from('csns_profiles').select('*').eq('id', session.user.id).single();
         
-        // Fallback profile creation
         if (!profile) {
             const meta = session.user.user_metadata;
             const username = meta.user_name || meta.full_name || session.user.email.split('@')[0];
@@ -44,22 +55,14 @@ async function checkAuth() {
     renderApp();
 }
 
-// GitHub OAuth
 window.loginWithGithub = async function() {
     const redirectUrl = window.location.origin + window.location.pathname;
-    await sb.auth.signInWithOAuth({
-        provider: 'github',
-        options: { redirectTo: redirectUrl }
-    });
+    await sb.auth.signInWithOAuth({ provider: 'github', options: { redirectTo: redirectUrl } });
 }
 
-// GitLab OAuth
 window.loginWithGitlab = async function() {
     const redirectUrl = window.location.origin + window.location.pathname;
-    await sb.auth.signInWithOAuth({
-        provider: 'gitlab',
-        options: { redirectTo: redirectUrl }
-    });
+    await sb.auth.signInWithOAuth({ provider: 'gitlab', options: { redirectTo: redirectUrl } });
 }
 
 window.logout = async function() {
@@ -70,45 +73,43 @@ window.logout = async function() {
 }
 
 sb.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
-        checkAuth();
-    }
+    if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') checkAuth();
 });
 
 // ==========================================
-// 3. DATA FETCHING
+// 3. ACTIONS
 // ==========================================
-async function fetchPosts(profileId = null) {
-    let query = sb.from('csns_posts').select(`
-        *,
-        csns_profiles:user_id (*),
-        csns_post_repos (*),
-        csns_likes (user_id)
-    `).order('created_at', { ascending: false });
-
-    if (profileId) query = query.eq('user_id', profileId);
-    const { data } = await query;
-    return data || [];
+window.handleImageSelect = function(input) {
+    if (input.files && input.files[0]) {
+        selectedImageFile = input.files[0];
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            document.getElementById('image-preview').src = e.target.result;
+            document.getElementById('image-preview').style.display = 'block';
+        };
+        reader.readAsDataURL(selectedImageFile);
+    }
 }
 
-async function fetchComments(postId) {
-    const { data } = await sb.from('csns_comments')
-        .select('*, csns_profiles:user_id (*)')
-        .eq('post_id', postId)
-        .order('created_at', { ascending: true });
-    return data || [];
-}
-
-// ==========================================
-// 4. ACTIONS
-// ==========================================
 window.handlePost = async function() {
     const content = document.getElementById('post-content').value;
     const repoUrl = document.getElementById('repo-url').value;
     if (!content.trim()) return;
 
+    let imageUrl = null;
+    
+    // Upload image if selected
+    if (selectedImageFile) {
+        const fileName = `${Date.now()}_${selectedImageFile.name}`;
+        const { data: uploadData, error: uploadError } = await sb.storage.from('post_images').upload(fileName, selectedImageFile);
+        if (!uploadError) {
+            imageUrl = sb.storage.from('post_images').getPublicUrl(fileName).data.publicUrl;
+        }
+        selectedImageFile = null;
+    }
+
     const { data: newPost, error } = await sb.from('csns_posts').insert({
-        content, user_id: currentUser.id
+        content, user_id: currentUser.id, image_url: imageUrl
     }).select('id').single();
 
     if (error) { alert('Error posting'); return; }
@@ -154,7 +155,7 @@ window.toggleComments = async function(postId) {
     if (section.style.display === 'none' || !section.innerHTML) {
         section.style.display = 'block';
         section.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-muted);">Loading...</div>';
-        const comments = await fetchComments(postId);
+        const { data: comments } = await sb.from('csns_comments').select('*, csns_profiles:user_id (*)').eq('post_id', postId).order('created_at', { ascending: true });
         
         let html = comments.map(c => `
             <div class="comment-item">
@@ -170,14 +171,8 @@ window.toggleComments = async function(postId) {
         `).join('');
         
         if (currentUser) {
-            html += `
-                <div class="comment-input-area">
-                    <input id="comment-input-${postId}" type="text" placeholder="Tweet your reply...">
-                    <button onclick="submitComment('${postId}')" class="btn btn-primary btn-sm">Reply</button>
-                </div>
-            `;
+            html += `<div class="comment-input-area"><input id="comment-input-${postId}" type="text" placeholder="Tweet your reply..."><button onclick="submitComment('${postId}')" class="btn btn-primary btn-sm">Reply</button></div>`;
         }
-        
         section.innerHTML = html || '<div style="padding: 1rem; text-align: center; color: var(--text-muted);">No comments yet.</div>';
     } else {
         section.style.display = 'none';
@@ -186,18 +181,37 @@ window.toggleComments = async function(postId) {
 
 window.submitComment = async function(postId) {
     const input = document.getElementById(`comment-input-${postId}`);
-    const content = input.value;
-    if (!content.trim()) return;
-    
-    await sb.from('csns_comments').insert({
-        post_id: postId, user_id: currentUser.id, content
-    });
+    if (!input.value.trim()) return;
+    await sb.from('csns_comments').insert({ post_id: postId, user_id: currentUser.id, content: input.value });
     toggleComments(postId);
     setTimeout(() => toggleComments(postId), 200);
 }
 
+window.showEditProfile = function() {
+    const modal = document.getElementById('edit-modal');
+    modal.style.display = 'flex';
+    document.getElementById('edit-fullname').value = currentUser.full_name || '';
+    document.getElementById('edit-bio').value = currentUser.bio || '';
+    document.getElementById('edit-avatar-url').value = currentUser.avatar_url || '';
+}
+
+window.closeEditProfile = function() {
+    document.getElementById('edit-modal').style.display = 'none';
+}
+
+window.saveProfile = async function() {
+    const fullName = document.getElementById('edit-fullname').value;
+    const bio = document.getElementById('edit-bio').value;
+    const avatarUrl = document.getElementById('edit-avatar-url').value;
+    
+    const { data } = await sb.from('csns_profiles').update({ full_name: fullName, bio: bio, avatar_url: avatarUrl }).eq('id', currentUser.id).select().single();
+    currentUser = data;
+    closeEditProfile();
+    renderApp();
+}
+
 // ==========================================
-// 5. UI RENDERING
+// 4. UI RENDERING
 // ==========================================
 async function renderApp() {
     if (currentView.startsWith('profile_')) {
@@ -212,6 +226,26 @@ function renderLayout(centerContent, activeNav = 'home') {
     
     return `
         <div class="main-layout">
+            <!-- EDIT PROFILE MODAL -->
+            <div id="edit-modal" class="modal-overlay" style="display: none;">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title">Edit Profile</h2>
+                        <button class="modal-close" onclick="closeEditProfile()">&times;</button>
+                    </div>
+                    <label class="modal-label">Full Name</label>
+                    <input id="edit-fullname" type="text" class="modal-input">
+                    <label class="modal-label">Bio</label>
+                    <textarea id="edit-bio" class="modal-input modal-textarea"></textarea>
+                    <label class="modal-label">Avatar Image URL</label>
+                    <input id="edit-avatar-url" type="text" class="modal-input" placeholder="https://...">
+                    <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem;">
+                        <button class="btn btn-ghost btn-sm" onclick="closeEditProfile()">Cancel</button>
+                        <button class="btn btn-primary btn-sm" onclick="saveProfile()">Save</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- LEFT SIDEBAR -->
             <aside class="left-sidebar">
                 <div class="logo">⚡ CodeSNS</div>
@@ -225,10 +259,13 @@ function renderLayout(centerContent, activeNav = 'home') {
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
                             <span>Profile</span>
                         </a>
+                        <a class="nav-item" onclick="showEditProfile()">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                            <span>Edit Profile</span>
+                        </a>
                     ` : ''}
                 </nav>
                 
-                <!-- AUTH BUTTONS IN SIDEBAR -->
                 ${currentUser ? `
                     <div class="user-card" onclick="logout()">
                         <img src="${avatarUrl}" class="post-avatar" style="width: 40px; height: 40px;">
@@ -239,14 +276,8 @@ function renderLayout(centerContent, activeNav = 'home') {
                     </div>
                 ` : `
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: auto; padding: 0 0.5rem;">
-                        <button onclick="loginWithGithub()" class="btn btn-ghost btn-sm" style="width: 100%; justify-content: center;">
-                            <svg style="width: 16px; height: 16px;" fill="currentColor" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
-                            GitHub
-                        </button>
-                        <button onclick="loginWithGitlab()" class="btn btn-ghost btn-sm" style="width: 100%; justify-content: center;">
-                            <svg style="width: 16px; height: 16px;" fill="currentColor" viewBox="0 0 24 24"><path d="M23.955 13.587l-1.347-4.135-2.664-8.197a.455.455 0 00-.867 0L16.413 9.45H7.587L4.923 1.255a.455.455 0 00-.867 0L1.392 9.452.045 13.587a.924.924 0 00.331 1.023L12 23.054l11.624-8.443a.92.92 0 00.331-1.024"/></svg>
-                            GitLab
-                        </button>
+                        <button onclick="loginWithGithub()" class="btn btn-ghost btn-sm" style="width: 100%; justify-content: center;">GitHub</button>
+                        <button onclick="loginWithGitlab()" class="btn btn-ghost btn-sm" style="width: 100%; justify-content: center;">GitLab</button>
                     </div>
                 `}
             </aside>
@@ -267,15 +298,11 @@ function renderLayout(centerContent, activeNav = 'home') {
                         <div class="font-mono" style="color: var(--accent-primary); font-size: 0.9rem;">supabase / supabase</div>
                         <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">The open source Firebase alternative.</div>
                     </div>
-                    <div class="trend-item">
-                        <div class="font-mono" style="color: var(--accent-primary); font-size: 0.9rem;">tailwindlabs / tailwindcss</div>
-                        <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">A utility-first CSS framework</div>
-                    </div>
                 </div>
                 <div class="widget">
-                    <h3 class="widget-title">💡 Dev Tip</h3>
+                    <h3 class="widget-title">💡 AI Dev Tip</h3>
                     <p style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5;">
-                        Use <span class="code-block" style="display: inline; padding: 2px 6px; margin: 0;">git commit --amend</span> to modify your most recent commit without creating a new one.
+                        ${devTip}
                     </p>
                 </div>
             </aside>
@@ -284,11 +311,9 @@ function renderLayout(centerContent, activeNav = 'home') {
 }
 
 async function renderFeed() {
-    const posts = await fetchPosts();
+    const { data: posts } = await sb.from('csns_posts').select(`*, csns_profiles:user_id (*), csns_post_repos (*), csns_likes (user_id)`).order('created_at', { ascending: false });
     const centerContent = `
-        <header class="page-header">
-            <h1 class="page-title">Home</h1>
-        </header>
+        <header class="page-header"><h1 class="page-title">Home</h1></header>
 
         ${currentUser ? `
             <div class="composer fade-in">
@@ -296,6 +321,16 @@ async function renderFeed() {
                 <div style="flex: 1;">
                     <textarea id="post-content" placeholder="What did you code today?" rows="3"></textarea>
                     <input id="repo-url" type="text" placeholder="Attach GitHub/GitLab repo link (optional)">
+                    
+                    <div class="upload-btn-wrapper">
+                        <label class="upload-btn">
+                            <svg style="width: 20px; height: 20px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                            <span>Add Image</span>
+                            <input id="image-upload" type="file" accept="image/*" style="display: none;" onchange="handleImageSelect(this)">
+                        </label>
+                        <img id="image-preview" class="image-preview" style="display: none;" />
+                    </div>
+                    
                     <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
                         <button onclick="handlePost()" class="btn btn-primary">Post Code</button>
                     </div>
@@ -306,14 +341,8 @@ async function renderFeed() {
                 <h2 style="font-size: 1.5rem; margin-bottom: 0.5rem;">Welcome to CodeSNS</h2>
                 <p style="color: var(--text-muted); margin-bottom: 1.5rem;">Sign in to join the conversation.</p>
                 <div style="display: flex; gap: 0.75rem; justify-content: center;">
-                    <button onclick="loginWithGithub()" class="btn btn-ghost">
-                        <svg style="width: 20px; height: 20px;" fill="currentColor" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
-                        GitHub
-                    </button>
-                    <button onclick="loginWithGitlab()" class="btn btn-ghost">
-                        <svg style="width: 20px; height: 20px;" fill="currentColor" viewBox="0 0 24 24"><path d="M23.955 13.587l-1.347-4.135-2.664-8.197a.455.455 0 00-.867 0L16.413 9.45H7.587L4.923 1.255a.455.455 0 00-.867 0L1.392 9.452.045 13.587a.924.924 0 00.331 1.023L12 23.054l11.624-8.443a.92.92 0 00.331-1.024"/></svg>
-                        GitLab
-                    </button>
+                    <button onclick="loginWithGithub()" class="btn btn-ghost">GitHub</button>
+                    <button onclick="loginWithGitlab()" class="btn btn-ghost">GitLab</button>
                 </div>
             </div>
         `}
@@ -322,13 +351,12 @@ async function renderFeed() {
             ${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No posts yet. Be the first to share!</div>'}
         </div>
     `;
-    
     app.innerHTML = renderLayout(centerContent, 'home');
 }
 
 async function renderProfile(profileId) {
     const { data: profile } = await sb.from('csns_profiles').select('*').eq('id', profileId).single();
-    const posts = await fetchPosts(profileId);
+    const { data: posts } = await sb.from('csns_posts').select(`*, csns_profiles:user_id (*), csns_post_repos (*), csns_likes (user_id)`).eq('user_id', profileId).order('created_at', { ascending: false });
     
     let isFollowing = false;
     if (currentUser) {
@@ -355,6 +383,8 @@ async function renderProfile(profileId) {
                     <button onclick="handleFollow('${profileId}', ${isFollowing})" class="btn ${isFollowing ? 'btn-ghost' : 'btn-primary'} btn-sm" style="margin-bottom: 1rem;">
                         ${isFollowing ? 'Following' : 'Follow'}
                     </button>
+                ` : currentUser && currentUser.id === profileId ? `
+                    <button onclick="showEditProfile()" class="btn btn-ghost btn-sm" style="margin-bottom: 1rem;">Edit Profile</button>
                 ` : ''}
             </div>
             <div class="profile-info">
@@ -368,7 +398,6 @@ async function renderProfile(profileId) {
             ${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No posts yet.</div>'}
         </div>
     `;
-
     app.innerHTML = renderLayout(centerContent, 'profile');
 }
 
@@ -377,9 +406,7 @@ function renderPostCard(post) {
     const timeAgo = new Date(post.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' });
     
     let contentHtml = post.content
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/```([\s\S]*?)```/g, '<div class="code-block">$1</div>')
         .replace(/\n/g, '<br>');
 
@@ -395,6 +422,8 @@ function renderPostCard(post) {
                     </div>
                     
                     <div class="post-content">${contentHtml}</div>
+
+                    ${post.image_url ? `<img src="${post.image_url}" class="post-image" alt="Post image">` : ''}
 
                     ${post.csns_post_repos && post.csns_post_repos.length > 0 ? `
                         ${post.csns_post_repos.map(repo => `
@@ -432,4 +461,5 @@ function renderPostCard(post) {
 }
 
 // Start the app
+fetchDevTip();
 checkAuth();
