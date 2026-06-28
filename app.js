@@ -224,7 +224,7 @@ window.handleReaction = async function(postId, type, ownerId) {
     if (!currentUser) return alert('Please login to react.');
     await sb.from('csns_likes').delete().match({ post_id: postId, user_id: currentUser.id });
     await sb.from('csns_likes').insert({ post_id: postId, user_id: currentUser.id, reaction_type: type });
-    if (type === 'like') createNotification(currentUser.id, ownerId, 'like', postId);
+    if (type === 'love') createNotification(currentUser.id, ownerId, 'like', postId);
     renderApp();
 }
 
@@ -407,7 +407,10 @@ function renderLayout(centerContent, activeNav = 'home') {
             <div id="quote-modal" class="modal-overlay" style="display: none;"><div class="modal-content"><div class="modal-header"><h2 class="modal-title">Quote Post</h2><button class="modal-close" onclick="closeQuoteModal()">&times;</button></div><textarea id="quote-content" class="modal-input modal-textarea" placeholder="Add a comment..." rows="4"></textarea><div style="display: flex; justify-content: flex-end; margin-top: 1rem;"><button class="btn btn-primary btn-sm" onclick="submitQuote()">Post</button></div></div></div>
 
             <aside class="left-sidebar">
-                <div class="logo">⚡ CodeSNS</div>
+                <div class="logo" style="display: flex; align-items: center; gap: 0.5rem;">
+                    <svg style="width: 28px; height: 28px; color: var(--accent-primary);" fill="currentColor" viewBox="0 0 24 24"><path d="M13 2L3 14h7v8l10-12h-7V2z"/></svg>
+                    CodeSNS
+                </div>
                 <nav style="flex: 1;">
                     <a class="nav-item ${activeNav === 'home' ? 'active' : ''}" onclick="currentView='feed'; renderApp()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg><span>Home</span></a>
                     <a class="nav-item ${activeNav === 'following' ? 'active' : ''}" onclick="currentView='following'; renderApp()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg><span>Following</span></a>
@@ -439,8 +442,8 @@ function renderLayout(centerContent, activeNav = 'home') {
 
             <aside class="right-sidebar">
                 <div style="position: relative;"><input type="text" class="search-box" placeholder="Search @users..." oninput="handleSearchInput(event)" onclick="event.stopPropagation()"><div id="search-results" class="search-results" style="display: none;"></div></div>
-                <div class="widget"><h3 class="widget-title">🔥 Trending Repos</h3><div id="trending-repos"><div class="trend-item">Loading GitHub repos...</div></div></div>
-                <div class="widget"><h3 class="widget-title">💡 AI Dev Tip</h3><p id="dev-tip-text" style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5;">${devTip}</p></div>
+                <div class="widget"><h3 class="widget-title" style="display:flex; align-items:center; gap:0.5rem;"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.24 17 6.343 18.657 8 18 12 18 12s.5 1 1.5 1.5c0 0-1 2-2 3.157z" /></svg> Trending Repos</h3><div id="trending-repos"><div class="trend-item">Loading GitHub repos...</div></div></div>
+                <div class="widget"><h3 class="widget-title" style="display:flex; align-items:center; gap:0.5rem;"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg> AI Dev Tip</h3><p id="dev-tip-text" style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5;">${devTip}</p></div>
             </aside>
         </div>
     `;
@@ -646,11 +649,15 @@ function renderPostCard(post) {
     let contentHtml = post.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/```([\s\S]*?)```/g, (match, p1) => `<div class="code-block-wrapper"><button class="copy-btn" onclick="copyCode(this)">Copy</button><pre class="code-block"><code class="hljs">${p1}</code></pre></div>`).replace(/\n/g, '<br>');
     let parentHtml = post.parent ? `<div class="quote-embed" onclick="event.stopPropagation(); currentView='profile_${post.parent.user_id}'; renderApp()"><span style="font-size: 0.8rem; color: var(--text-muted);">Quote from @${post.parent.csns_profiles?.username}</span><p style="margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);">${post.parent.content.substring(0, 140)}...</p></div>` : '';
 
-    const reactions = [{ type: 'like', emoji: '👍' }, { type: 'love', emoji: '❤️' }, { type: 'fire', emoji: '🔥' }];
+    const reactions = [
+        { type: 'love', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />' }, 
+        { type: 'like', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />' }, 
+        { type: 'fire', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.24 17 6.343 18.657 8 18 12 18 12s.5 1 1.5 1.5c0 0-1 2-2 3.157z" />' }
+    ];
     const reactionHtml = reactions.map(r => {
         const count = post.csns_likes.filter(l => l.reaction_type === r.type).length;
         const isActive = currentUser ? post.csns_likes.some(l => l.user_id === currentUser.id && l.reaction_type === r.type) : false;
-        return `<button onclick="handleReaction('${post.id}', '${r.type}', '${post.user_id}')" class="action-btn ${isActive ? 'liked' : ''}">${r.emoji} ${count > 0 ? count : ''}</button>`;
+        return `<button onclick="handleReaction('${post.id}', '${r.type}', '${post.user_id}')" class="action-btn ${isActive ? 'liked' : ''}"><svg style="width: 18px; height: 18px;" fill="${isActive ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24">${r.icon}</svg> ${count > 0 ? count : ''}</button>`;
     }).join('');
 
     return `
