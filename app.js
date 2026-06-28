@@ -39,7 +39,6 @@ async function checkAuth() {
             profile = newProfile;
         }
         
-        // Check for 360-search.com email for Premium/Verified
         if (session.user.email.endsWith('@360-search.com') && !profile.is_premium) {
             const { data: updated } = await sb.from('csns_profiles').update({ is_premium: true, is_verified: true }).eq('id', session.user.id).select().single();
             profile = updated;
@@ -307,6 +306,21 @@ window.submitComment = async function(postId, ownerId) {
     setTimeout(() => toggleComments(postId), 200);
 }
 
+window.updateDnsHost = function(domain) {
+    if (domain && domain.trim() !== '') {
+        document.getElementById('dns-info').style.display = 'block';
+        document.getElementById('dns-host').innerText = `_codesns.${domain}`;
+    } else {
+        document.getElementById('dns-info').style.display = 'none';
+    }
+}
+
+window.copyDnsValue = function() {
+    const value = document.getElementById('dns-txt').innerText;
+    navigator.clipboard.writeText(value);
+    alert('Copied DNS value to clipboard!');
+}
+
 window.showEditProfile = function() {
     document.getElementById('edit-modal').style.display = 'flex';
     document.getElementById('edit-fullname').value = currentUser.full_name || '';
@@ -317,10 +331,10 @@ window.showEditProfile = function() {
     document.getElementById('edit-twitter').value = currentUser.twitter_url || '';
     document.getElementById('edit-domain').value = currentUser.custom_domain || '';
     
+    document.getElementById('dns-txt').innerText = `codesns-verify=${currentUser.id}`;
     if (currentUser.custom_domain && !currentUser.domain_verified) {
         document.getElementById('dns-info').style.display = 'block';
-        document.getElementById('dns-txt').innerText = `codesns-verify=${currentUser.id}`;
-        document.getElementById('dns-host').innerText = `_codesns.${currentUser.custom_domain || 'yourdomain.com'}`;
+        document.getElementById('dns-host').innerText = `_codesns.${currentUser.custom_domain}`;
     } else {
         document.getElementById('dns-info').style.display = 'none';
     }
@@ -427,12 +441,27 @@ function renderLayout(centerContent, activeNav = 'home') {
                     <div class="modal-input-group"><label class="modal-label">Avatar Image URL</label><input id="edit-avatar-url" type="text" class="modal-input" placeholder="https://..."></div>
                     <div class="modal-input-group"><label class="modal-label">Banner Image URL</label><input id="edit-banner-url" type="text" class="modal-input" placeholder="https://..."></div>
                     
-                    <div class="modal-input-group"><label class="modal-label">Custom Domain (Premium)</label><input id="edit-domain" type="text" class="modal-input" placeholder="yourdomain.com" onchange="document.getElementById('dns-info').style.display='block'; document.getElementById('dns-host').innerText='_codesns.'+this.value;">
-                    <div id="dns-info" style="display: none; margin-top: 0.5rem;">
-                        <div class="dns-info-box">Host: <span id="dns-host"></span></div>
-                        <div class="dns-info-box">Value: <span id="dns-txt"></span></div>
-                        <button id="verify-btn" class="btn btn-primary btn-sm" style="margin-top: 0.5rem;" onclick="verifyDomain()">Verify Domain</button>
-                        <div id="dns-status" class="dns-status" style="display: none;"></div>
+                    <div class="modal-input-group"><label class="modal-label">Custom Domain (Premium)</label><input id="edit-domain" type="text" class="modal-input" placeholder="yourdomain.com" oninput="updateDnsHost(this.value)">
+                    <div id="dns-info" style="display: none; margin-top: 1rem; border-top: 1px solid var(--border-light); padding-top: 1rem;">
+                        <h3 style="font-size: 0.9rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--text-primary);">DNS Verification Instructions</h3>
+                        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">Add a <strong>TXT record</strong> to your domain's DNS settings to verify ownership.</p>
+                        
+                        <div style="display: grid; grid-template-columns: 100px 1fr; gap: 0.5rem; font-size: 0.8rem; margin-bottom: 1rem; align-items: center;">
+                            <span style="color: var(--text-muted);">Record Type:</span>
+                            <span class="dns-info-box" style="margin:0; padding: 4px 8px;">TXT</span>
+                            
+                            <span style="color: var(--text-muted);">Name/Host:</span>
+                            <span id="dns-host" class="dns-info-box" style="margin:0; padding: 4px 8px;">_codesns.yourdomain.com</span>
+                            
+                            <span style="color: var(--text-muted);">Value:</span>
+                            <div style="display:flex; align-items:center; gap:0.5rem;">
+                                <span id="dns-txt" class="dns-info-box" style="margin:0; padding: 4px 8px; flex:1;">codesns-verify=...</span>
+                                <button onclick="copyDnsValue()" class="btn btn-ghost btn-sm" style="padding: 4px 8px;">Copy</button>
+                            </div>
+                        </div>
+                        
+                        <button id="verify-btn" class="btn btn-primary btn-sm" style="width: 100%;" onclick="verifyDomain()">Verify Domain</button>
+                        <div id="dns-status" class="dns-status" style="display: none; text-align: center;"></div>
                     </div></div>
                     
                     <div class="modal-input-group"><label class="modal-label">LinkedIn URL</label><input id="edit-linkedin" type="text" class="modal-input" placeholder="https://linkedin.com/in/..."></div>
@@ -588,14 +617,12 @@ async function renderProfile(profileId) {
     let isFollowing = false;
     if (currentUser) { const { data } = await sb.from('csns_follows').select('*').match({ follower_id: currentUser.id, following_id: profileId }); isFollowing = data.length > 0; }
     
-    // Fetch GitHub Stats & Calculate Achievements
     let badgeHtml = '';
     let ghStatsHtml = '';
     let achievementsHtml = '';
     let totalLikes = 0;
     posts.forEach(p => totalLikes += p.csns_likes.length);
 
-    // Base Achievements
     let achievements = [];
     if (posts.length > 0) achievements.push({ name: 'First Post', icon: 'post' });
     if (totalLikes >= 10) achievements.push({ name: 'Getting Likes', icon: 'heart' });
@@ -630,7 +657,6 @@ async function renderProfile(profileId) {
         }
     }
 
-    // Render Achievements
     const iconMap = {
         post: '<path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>',
         heart: '<path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/>',
