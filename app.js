@@ -19,7 +19,6 @@ let replyToCommentId = null;
 let activeFeedTab = 'foryou';
 let activeTag = null;
 let linkPreviewCache = {};
-let verificationCodeSent = null;
 
 // KEYBOARD SHORTCUTS
 document.addEventListener('keydown', (e) => {
@@ -437,42 +436,77 @@ window.toggleTheme = function() {
 // VERIFICATION FLOW
 window.showVerifyModal = function() {
     document.getElementById('verify-modal').style.display = 'flex';
+    document.getElementById('verify-step-1').style.display = 'block';
+    document.getElementById('verify-step-2').style.display = 'none';
+    document.getElementById('verify-email').value = '';
+    document.getElementById('verify-code-input').value = '';
 }
 
 window.closeVerifyModal = function() {
     document.getElementById('verify-modal').style.display = 'none';
-    verificationCodeSent = null;
 }
 
 window.sendVerificationCode = async function() {
     const email = document.getElementById('verify-email').value;
     if (!email.endsWith('@360-search.com')) return alert('Email must end in @360-search.com');
     
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    verificationCodeSent = code;
+    const btn = document.querySelector('#verify-step-1 button');
+    btn.innerText = 'Sending...';
+    btn.disabled = true;
     
-    await sb.from('csns_email_verifications').insert({ user_id: currentUser.id, email, code });
-    
-    // In a real app, an Edge Function would email this. For now, we log it/alert it for testing.
-    console.log(`Verification code for ${email}: ${code}`);
-    alert(`(DEV MODE) Your verification code is: ${code}`);
-    
-    document.getElementById('verify-step-1').style.display = 'none';
-    document.getElementById('verify-step-2').style.display = 'block';
+    try {
+        const { error } = await sb.functions.invoke('send-verification', {
+            body: { email, userId: currentUser.id },
+            method: 'POST'
+        });
+        
+        if (error) throw error;
+        
+        document.getElementById('verify-step-1').style.display = 'none';
+        document.getElementById('verify-step-2').style.display = 'block';
+    } catch (err) {
+        alert('Failed to send code: ' + err.message);
+        btn.innerText = 'Send Code';
+        btn.disabled = false;
+    }
 }
 
 window.confirmVerificationCode = async function() {
     const code = document.getElementById('verify-code-input').value;
-    if (code !== verificationCodeSent) return alert('Invalid code.');
+    const btn = document.querySelector('#verify-step-2 button');
+    btn.innerText = 'Verifying...';
+    btn.disabled = true;
     
-    const { data } = await sb.from('csns_profiles').update({ is_verified: true, is_premium: true }).eq('id', currentUser.id).select().single();
-    currentUser = data;
-    closeVerifyModal();
-    renderApp();
+    try {
+        const { data, error } = await sb.from('csns_email_verifications')
+            .select('*')
+            .eq('user_id', currentUser.id)
+            .eq('code', code)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+            
+        if (error || !data) throw new Error('Invalid code.');
+        
+        const { data: updatedProfile } = await sb.from('csns_profiles')
+            .update({ is_verified: true, is_premium: true })
+            .eq('id', currentUser.id)
+            .select()
+            .single();
+            
+        currentUser = updatedProfile;
+        closeVerifyModal();
+        renderApp();
+    } catch (err) {
+        alert(err.message);
+        btn.innerText = 'Verify';
+        btn.disabled = false;
+    }
 }
 
 // COLLECTIONS
 window.showCollections = async function() {
+    if (!currentUser) return;
     const { data: collections } = await sb.from('csns_collections').select('*').eq('user_id', currentUser.id);
     const colList = document.getElementById('collections-list');
     
