@@ -407,3 +407,62 @@ body {
 
 .fade-in { animation: fadeIn 0.3s ease; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Post Images */
+.post-image {
+    width: 100%;
+    border-radius: var(--radius-md);
+    margin-top: 1rem;
+    border: 1px solid var(--border-light);
+    display: block;
+}
+
+/* Image Upload Button */
+.upload-btn-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 0.5rem;
+}
+.upload-btn {
+    cursor: pointer;
+    color: var(--accent-primary);
+    padding: 0.5rem;
+    border-radius: var(--radius-full);
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+.upload-btn:hover { background: rgba(0, 212, 255, 0.1); }
+.image-preview {
+    max-height: 80px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-light);
+}
+
+/* Modal */
+.modal-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.7); backdrop-filter: blur(8px);
+    display: flex; align-items: center; justify-content: center; z-index: 1000;
+    animation: fadeIn 0.2s ease;
+}
+.modal-content {
+    background: var(--bg-surface); border: 1px solid var(--border-medium);
+    border-radius: var(--radius-lg); padding: 2rem; width: 90%; max-width: 500px;
+    box-shadow: 0 0 40px rgba(0,0,0,0.5);
+}
+.modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+.modal-title { font-size: 1.25rem; font-weight: 800; }
+.modal-close { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.5rem; }
+.modal-input {
+    width: 100%; background: var(--bg-main); border: 1px solid var(--border-medium);
+    border-radius: var(--radius-sm); padding: 0.75rem; margin-bottom: 1rem;
+    color: var(--text-primary); outline: none; font-family: 'Inter', sans-serif;
+}
+.modal-input:focus { border-color: var(--accent-primary); }
+.modal-textarea { resize: none; min-height: 80px; }
+.modal-label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem; font-weight: 600; }
