@@ -80,12 +80,10 @@ async function createNotification(actorId, userId, type, postId = null) {
     await sb.from('csns_notifications').insert({ actor_id: actorId, user_id: userId, type, post_id: postId });
 }
 
+// FIX: Removed the date filter to prevent 403 errors from future dates
 async function fetchTrendingRepos() {
     try {
-        const date = new Date();
-        date.setDate(date.getDate() - 7);
-        const dateStr = date.toISOString().split('T')[0];
-        const res = await fetch(`https://api.github.com/search/repositories?q=created:>${dateStr}&sort=stars&order=desc&per_page=3`);
+        const res = await fetch(`https://api.github.com/search/repositories?q=stars:%3E10000&sort=stars&order=desc&per_page=3`);
         const data = await res.json();
         const trendEl = document.getElementById('trending-repos');
         if (trendEl && data.items) {
@@ -244,11 +242,37 @@ window.deletePost = async function(postId) {
     renderApp();
 }
 
+// Standard Like (Thumbs Up)
+window.handleLike = async function(postId, ownerId) {
+    if (!currentUser) return alert('Please login to like.');
+    const { data: existing } = await sb.from('csns_likes').select('id').match({ post_id: postId, user_id: currentUser.id }).single();
+    if (existing) {
+        await sb.from('csns_likes').delete().eq('id', existing.id);
+    } else {
+        await sb.from('csns_likes').insert({ post_id: postId, user_id: currentUser.id });
+        createNotification(currentUser.id, ownerId, 'like', postId);
+    }
+    renderApp();
+}
+
+// Emoji Reactions (Heart, Fire, etc.)
 window.handleReaction = async function(postId, type, ownerId) {
     if (!currentUser) return alert('Please login to react.');
-    await sb.from('csns_likes').delete().match({ post_id: postId, user_id: currentUser.id });
-    await sb.from('csns_likes').insert({ post_id: postId, user_id: currentUser.id, reaction_type: type });
-    if (type === 'love') createNotification(currentUser.id, ownerId, 'like', postId);
+    const { data: existing } = await sb.from('csns_reactions').select('id, type').match({ post_id: postId, user_id: currentUser.id }).single();
+    
+    if (existing) {
+        if (existing.type === type) {
+            // Toggle off if clicking the same emoji
+            await sb.from('csns_reactions').delete().eq('id', existing.id);
+        } else {
+            // Update to new emoji (can't have 2 emojis at once)
+            await sb.from('csns_reactions').update({ type }).eq('id', existing.id);
+            if (type === 'heart') createNotification(currentUser.id, ownerId, 'like', postId);
+        }
+    } else {
+        await sb.from('csns_reactions').insert({ post_id: postId, user_id: currentUser.id, type });
+        if (type === 'heart') createNotification(currentUser.id, ownerId, 'like', postId);
+    }
     renderApp();
 }
 
@@ -271,7 +295,6 @@ window.showQuoteModal = function(postId, isRepost) { const modal = document.getE
 window.closeQuoteModal = function() { document.getElementById('quote-modal').style.display = 'none'; }
 window.submitQuote = function() { const modal = document.getElementById('quote-modal'); handlePost(modal.dataset.postId, modal.dataset.isRepost === 'true'); }
 
-// FIX: Added ownerId parameter to fix infinite loading bug
 window.toggleComments = async function(postId, ownerId) {
     const section = document.getElementById(`comments-${postId}`);
     if (section.style.display === 'none' || !section.innerHTML) {
@@ -475,7 +498,7 @@ function renderLayout(centerContent, activeNav = 'home') {
 }
 
 async function fetchFeedPosts() {
-    return await sb.from('csns_posts').select(`*, csns_profiles:user_id (*), csns_post_repos (*), csns_likes (user_id, reaction_type), csns_bookmarks (user_id), parent:parent_post_id (*, csns_profiles:user_id (*)), csns_polls (*, csns_poll_votes (user_id, option_index))`).order('created_at', { ascending: false });
+    return await sb.from('csns_posts').select(`*, csns_profiles:user_id (*), csns_post_repos (*), csns_likes (user_id), csns_reactions (user_id, type), csns_bookmarks (user_id), parent:parent_post_id (*, csns_profiles:user_id (*)), csns_polls (*, csns_poll_votes (user_id, option_index))`).order('created_at', { ascending: false });
 }
 
 async function renderFeed() {
@@ -675,6 +698,7 @@ function applySyntaxHighlighting() { document.querySelectorAll('pre code').forEa
 
 function renderPostCard(post) {
     const isSaved = currentUser ? post.csns_bookmarks.some(b => b.user_id === currentUser.id) : false;
+    const isLiked = currentUser ? post.csns_likes.some(l => l.user_id === currentUser.id) : false;
     const timeAgo = new Date(post.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' });
     
     let contentHtml = post.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/```([\s\S]*?)```/g, (match, p1) => `<div class="code-block-wrapper"><button class="copy-btn" onclick="copyCode(this)">Copy</button><pre class="code-block"><code class="hljs">${p1}</code></pre></div>`).replace(/\n/g, '<br>');
@@ -708,14 +732,14 @@ function renderPostCard(post) {
         pollHtml += '</div>';
     }
 
-    const reactions = [
-        { type: 'love', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />' }, 
-        { type: 'like', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />' }, 
-        { type: 'fire', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.24 17 6.343 18.657 8 18 12 18 12s.5 1 1.5 1.5c0 0-1 2-2 3.157z" />' }
+    const emojis = [
+        { type: 'heart', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />' }, 
+        { type: 'fire', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.24 17 6.343 18.657 8 18 12 18 12s.5 1 1.5 1.5c0 0-1 2-2 3.157z" />' },
+        { type: 'tada', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />' }
     ];
-    const reactionHtml = reactions.map(r => {
-        const count = post.csns_likes.filter(l => l.reaction_type === r.type).length;
-        const isActive = currentUser ? post.csns_likes.some(l => l.user_id === currentUser.id && l.reaction_type === r.type) : false;
+    const reactionHtml = emojis.map(r => {
+        const count = post.csns_reactions.filter(l => l.type === r.type).length;
+        const isActive = currentUser ? post.csns_reactions.some(l => l.user_id === currentUser.id && l.type === r.type) : false;
         return `<button onclick="handleReaction('${post.id}', '${r.type}', '${post.user_id}')" class="action-btn ${isActive ? 'liked' : ''}"><svg style="width: 18px; height: 18px;" fill="${isActive ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24">${r.icon}</svg> ${count > 0 ? count : ''}</button>`;
     }).join('');
 
@@ -742,7 +766,13 @@ function renderPostCard(post) {
                         <button onclick="toggleComments('${post.id}', '${post.user_id}')" class="action-btn"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg></button>
                         <button onclick="showQuoteModal('${post.id}', false)" class="action-btn"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg></button>
                         <button onclick="showQuoteModal('${post.id}', true)" class="action-btn"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></button>
+                        
+                        <!-- Standard Like (Thumbs Up) -->
+                        <button onclick="handleLike('${post.id}', '${post.user_id}')" class="action-btn ${isLiked ? 'liked' : ''}"><svg style="width: 18px; height: 18px;" fill="${isLiked ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" /></svg> ${post.csns_likes.length > 0 ? post.csns_likes.length : ''}</button>
+                        
+                        <!-- Emoji Reactions -->
                         ${reactionHtml}
+
                         <button class="action-btn"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg> ${post.views || 0}</button>
                         <button onclick="handleBookmark('${post.id}', ${isSaved})" class="action-btn ${isSaved ? 'saved' : ''}"><svg style="width: 18px; height: 18px;" fill="${isSaved ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg></button>
                     </div>
