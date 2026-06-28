@@ -326,3 +326,76 @@ body.light-theme .post-card:hover { background: rgba(0, 0, 0, 0.01); }
 /* VERIFICATION MODAL */
 .verify-step { padding: 1rem; background: var(--bg-main); border-radius: var(--radius-sm); margin-bottom: 1rem; border: 1px solid var(--border-light); }
 .verify-code-input { letter-spacing: 0.5rem; text-align: center; font-size: 1.5rem; font-weight: 700; }
+
+/* REMOVE FOCUS OUTLINES */
+a:focus, button:focus, input:focus, textarea:focus, select:focus {
+    outline: none;
+    box-shadow: none;
+}
+a {
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* PROFILE ORGANIZATION */
+.profile-section {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border-light);
+}
+.profile-section:last-child {
+    border-bottom: none;
+}
+.section-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    font-weight: 700;
+    margin-bottom: 1rem;
+    letter-spacing: 0.05em;
+}
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 1rem;
+}
+.stat-box {
+    background: var(--bg-elevated);
+    padding: 1rem;
+    border-radius: var(--radius-md);
+    text-align: center;
+    border: 1px solid var(--border-light);
+    transition: var(--transition);
+}
+.stat-box:hover {
+    border-color: var(--accent-primary);
+}
+.stat-value {
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: var(--text-primary);
+}
+.stat-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+.social-icons-row {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+.social-icons-row a {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-full);
+    background: var(--bg-elevated);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-light);
+    transition: var(--transition);
+}
+.social-icons-row a:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent-primary);
+    transform: translateY(-2px);
+}
