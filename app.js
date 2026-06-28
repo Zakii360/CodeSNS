@@ -1,5 +1,5 @@
 const SUPABASE_URL = 'https://tvxugmumfvgnvjacwwfz.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2eHVnbXVtZnZnbnZqYWN3d2Z6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3NjQ1MzEsImV4cCI6MjA5NjM0MDUzMX0.76wR9dblt8W9u-OioqQH7NOethNq1BMfjTDl9xcpYYI';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2eHVnbXVtZnZnbnZqYWN3d2Z6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3NjQ1MzEsImV4cCI6MjA5NjM0MDUzMX0.76wR9dblt8W9u-OioqQH7NOethNq1BMfjTDl9xcpYYI'; 
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { detectSessionInUrl: true, persistSession: true, autoRefreshToken: true }
@@ -705,7 +705,7 @@ function renderLayout(centerContent, activeNav = 'home') {
                 </a>
 
                 ${currentUser ? `
-                    <button class="btn btn-ghost btn-sm" style="margin-bottom: 0.5rem; width: 100%;" onclick="showVerifyModal()">Get Verified</button>
+                    ${!currentUser.is_verified ? `<button class="btn btn-ghost btn-sm" style="margin-bottom: 0.5rem; width: 100%;" onclick="showVerifyModal()">Get Verified</button>` : ''}
                     <div style="position: relative; margin-bottom: 1rem;">
                         <div class="user-card" onclick="toggleNotifDropdown(event)">
                             <img src="${avatarUrl}" class="post-avatar" style="width: 40px; height: 40px;">
@@ -839,7 +839,7 @@ async function renderFollowing() {
     const followingIds = follows.map(f => f.following_id);
     let posts = [];
     if (followingIds.length > 0) { const res = await fetchFeedPosts(); posts = res.data.filter(p => followingIds.includes(p.user_id)); }
-    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Following</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">Feed is empty.</div>'}</div>`, 'following');
+    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Following</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('() || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">Feed is empty.</div>'}</div>`, 'following');
     fetchTrendingRepos(); applySyntaxHighlighting(); initRepoStats();
 }
 
@@ -975,7 +975,7 @@ async function renderProfile(profileId) {
             ${metaItems.length > 0 ? `<div class="profile-meta-row">${metaItems.join('')}</div>` : ''}
             ${socialsHtml} ${ghStatsHtml} ${achievementsHtml}
         </div>
-        <div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No posts yet.</div>'}</div>
+        <div id="feed">${posts.map(post => renderPostCard(post)).join('() || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No posts yet.</div>'}</div>
     `;
     app.innerHTML = renderLayout(centerContent, 'profile');
     fetchTrendingRepos(); applySyntaxHighlighting(); initRepoStats();
