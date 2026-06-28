@@ -660,3 +660,5 @@ body {
     color: #000;
     border-color: var(--accent-primary);
 }
+
+.profile-meta-row { display: flex; flex-wrap: wrap; gap: 1.5rem; padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-light); color: var(--text-muted); font-size: 0.9rem; }
