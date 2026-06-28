@@ -77,7 +77,6 @@ sb.auth.onAuthStateChange((event, session) => {
     else if (event === 'SIGNED_OUT') checkAuth();
 });
 
-// REALTIME: Listen for new posts
 sb.channel('public:csns_posts')
   .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'csns_posts' }, payload => {
       if (currentView === 'feed') renderApp();
@@ -90,11 +89,13 @@ async function createNotification(actorId, userId, type, postId = null) {
 }
 
 async function fetchTrendingRepos() {
+    const trendEl = document.getElementById('trending-repos');
+    if (!trendEl) return;
     try {
         const res = await fetch(`https://api.github.com/search/repositories?q=stars:%3E10000&sort=stars&order=desc&per_page=3`);
+        if (!res.ok) throw new Error("Rate limited");
         const data = await res.json();
-        const trendEl = document.getElementById('trending-repos');
-        if (trendEl && data.items) {
+        if (data.items) {
             trendEl.innerHTML = data.items.map(r => `
                 <div class="trend-item">
                     <div class="font-mono" style="color: var(--accent-primary); font-size: 0.9rem;">${r.full_name}</div>
@@ -105,7 +106,13 @@ async function fetchTrendingRepos() {
                 </div>
             `).join('');
         }
-    } catch (e) {}
+    } catch (e) {
+        trendEl.innerHTML = `
+            <div class="trend-item"><div class="font-mono" style="color: var(--accent-primary); font-size: 0.9rem;">vercel / next.js</div><div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">The React Framework for the Web</div></div>
+            <div class="trend-item"><div class="font-mono" style="color: var(--accent-primary); font-size: 0.9rem;">supabase / supabase</div><div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">The open source Firebase alternative.</div></div>
+            <div class="trend-item"><div class="font-mono" style="color: var(--accent-primary); font-size: 0.9rem;">tailwindlabs / tailwindcss</div><div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">A utility-first CSS framework</div></div>
+        `;
+    }
 }
 
 async function fetchNotifications() {
@@ -301,7 +308,6 @@ window.copyCode = function(btn) {
     setTimeout(() => btn.innerText = 'Copy', 2000); 
 }
 
-// CODE SANDBOX
 window.runCode = function(btn) {
     const wrapper = btn.closest('.code-block-wrapper');
     const code = wrapper.querySelector('code').innerText;
@@ -371,7 +377,6 @@ window.submitComment = async function(postId, ownerId) {
     setTimeout(() => toggleComments(postId, ownerId), 200);
 }
 
-// HASHTAGS
 window.searchTag = function(tag) {
     activeTag = tag;
     currentView = 'feed';
@@ -546,7 +551,7 @@ function renderLayout(centerContent, activeNav = 'home') {
             <main class="center-feed">${centerContent}</main>
 
             <aside class="right-sidebar">
-                <div style="position: relative;"><input type="text" class="search-box" placeholder="Search @users..." oninput="handleSearchInput(event)" onclick="event.stopPropagation()"><div id="search-results" class="search-results" style="display: none; position: absolute; top: 50px; left: 0; right: 0; background: var(--bg-surface); border: 1px solid var(--border-medium); border-radius: var(--radius-md); max-height: 300px; overflow-y: auto; z-index: 50;"></div></div>
+                <div style="position: relative;"><input type="text" class="search-box" placeholder="Search @users..." oninput="handleSearchInput(event)" onclick="event.stopPropagation()"><div id="search-results" class="search-results" style="display: none;"></div></div>
                 <div class="widget"><h3 class="widget-title"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.24 17 6.343 18.657 8 18 12 18 12s.5 1 1.5 1.5c0 0-1 2-2 3.157z" /></svg> Trending Repos</h3><div id="trending-repos"><div class="trend-item">Loading...</div></div></div>
                 <div class="widget"><h3 class="widget-title"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg> AI Dev Tip</h3><p id="dev-tip-text" style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5;">${devTip}</p></div>
             </aside>
@@ -647,7 +652,7 @@ async function renderFollowing() {
     const followingIds = follows.map(f => f.following_id);
     let posts = [];
     if (followingIds.length > 0) { const res = await fetchFeedPosts(); posts = res.data.filter(p => followingIds.includes(p.user_id)); }
-    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Following</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">Feed is empty.</div>'}</div>`, 'following');
+    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Following</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('() || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">Feed is empty.</div>'}</div>`, 'following');
     fetchTrendingRepos(); applySyntaxHighlighting(); initRepoStats();
 }
 
@@ -744,18 +749,18 @@ async function renderProfile(profileId) {
         linkedin: '<path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-4 0v7h-4v-7a6 6 0 016-6zM2 9h4v12H2zM4 2a2 2 0 110 4 2 2 0 010-4z"/>'
     };
 
-    achievementsHtml = `<div class="achievements-row" style="display: flex; flex-wrap: wrap; gap: 0.75rem; padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-light);">${achievements.map(a => `<div class="achievement-badge ${a.class || ''}" style="display: flex; flex-direction: column; align-items: center; gap: 0.25rem; width: 70px; text-align: center;"><div class="achievement-icon" style="width: 40px; height: 40px; border-radius: 50%; background: var(--bg-elevated); display: flex; align-items: center; justify-content: center; color: var(--accent-primary); border: 1px solid var(--border-medium);"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 20px; height: 20px;">${iconMap[a.icon] || iconMap.post}</svg></div><span class="achievement-name" style="font-size: 0.7rem; color: var(--text-muted); font-weight: 600;">${a.name}</span></div>`).join('')}</div>`;
+    achievementsHtml = `<div class="achievements-row">${achievements.map(a => `<div class="achievement-badge ${a.class || ''}"><div class="achievement-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconMap[a.icon] || iconMap.post}</svg></div><span class="achievement-name">${a.name}</span></div>`).join('')}</div>`;
 
-    const verifiedHtml = profile.is_verified ? `<span class="verified-badge" style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; background: var(--accent-primary); color: #000; border-radius: 50%; margin-left: 0.25rem; vertical-align: middle;"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width: 12px; height: 12px;"><polyline points="20 6 9 17 4 12"></polyline></svg></span>` : '';
-    const premiumHtml = profile.is_premium ? `<span class="premium-badge" style="display: inline-flex; align-items: center; justify-content: center; color: #ffd700; margin-left: 0.25rem; vertical-align: middle;"><svg fill="currentColor" viewBox="0 0 24 24" style="width: 18px; height: 18px;"><path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm14 3c0 .6-.4 1-1 1H6c-.6 0-1-.4-1-1v-1h14v1z"/></svg></span>` : '';
+    const verifiedHtml = profile.is_verified ? `<span class="verified-badge"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span>` : '';
+    const premiumHtml = profile.is_premium ? `<span class="premium-badge"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm14 3c0 .6-.4 1-1 1H6c-.6 0-1-.4-1-1v-1h14v1z"/></svg></span>` : '';
     
     let socialsHtml = '';
     if (profile.linkedin_url || profile.twitter_url || profile.github_url) {
-        socialsHtml = `<div class="social-links" style="display: flex; gap: 1rem; padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-light);">`;
-        if (profile.github_url) socialsHtml += `<a href="${profile.github_url}" target="_blank" class="social-link" style="color: var(--text-muted);"><svg fill="currentColor" viewBox="0 0 24 24" style="width: 20px; height: 20px;"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg></a>`;
-        if (profile.gitlab_url) socialsHtml += `<a href="${profile.gitlab_url}" target="_blank" class="social-link" style="color: var(--text-muted);"><svg fill="currentColor" viewBox="0 0 24 24" style="width: 20px; height: 20px;"><path d="M23.955 13.587l-1.347-4.135-2.664-8.197a.455.455 0 00-.867 0L16.413 9.45H7.587L4.923 1.255a.455.455 0 00-.867 0L1.392 9.452.045 13.587a.924.924 0 00.331 1.023L12 23.054l11.624-8.443a.92.92 0 00.331-1.024"/></svg></a>`;
-        if (profile.linkedin_url) socialsHtml += `<a href="${profile.linkedin_url}" target="_blank" class="social-link" style="color: var(--text-muted);"><svg fill="currentColor" viewBox="0 0 24 24" style="width: 20px; height: 20px;"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg></a>`;
-        if (profile.twitter_url) socialsHtml += `<a href="${profile.twitter_url}" target="_blank" class="social-link" style="color: var(--text-muted);"><svg fill="currentColor" viewBox="0 0 24 24" style="width: 20px; height: 20px;"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>`;
+        socialsHtml = `<div class="social-links">`;
+        if (profile.github_url) socialsHtml += `<a href="${profile.github_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg></a>`;
+        if (profile.gitlab_url) socialsHtml += `<a href="${profile.gitlab_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M23.955 13.587l-1.347-4.135-2.664-8.197a.455.455 0 00-.867 0L16.413 9.45H7.587L4.923 1.255a.455.455 0 00-.867 0L1.392 9.452.045 13.587a.924.924 0 00.331 1.023L12 23.054l11.624-8.443a.92.92 0 00.331-1.024"/></svg></a>`;
+        if (profile.linkedin_url) socialsHtml += `<a href="${profile.linkedin_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg></a>`;
+        if (profile.twitter_url) socialsHtml += `<a href="${profile.twitter_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>`;
         socialsHtml += `</div>`;
     }
 
@@ -770,14 +775,14 @@ async function renderProfile(profileId) {
             </select>
         </header>
         <div class="profile-header fade-in">
-            <div class="profile-banner" style="height: 150px; background-size: cover; background-position: center; background-image: ${profile.banner_url ? `url('${profile.banner_url}')` : 'linear-gradient(45deg, #1a1a24, #050507, #14141b)'};"></div>
-            <div class="profile-avatar-wrapper" style="padding: 0 1.5rem; margin-top: -50px; display: flex; justify-content: space-between; align-items: flex-end;"><img src="${profile.avatar_url || `https://ui-avatars.com/api/?name=${profile.username}`}" class="profile-avatar-main" style="width: 100px; height: 100px; border-radius: 50%; border: 4px solid var(--bg-main); background: var(--bg-elevated); position: relative; z-index: 2; object-fit: cover;">
+            <div class="profile-banner" style="${profile.banner_url ? `background-image: url('${profile.banner_url}')` : ''}"></div>
+            <div class="profile-avatar-wrapper"><img src="${profile.avatar_url || `https://ui-avatars.com/api/?name=${profile.username}`}" class="profile-avatar-main">
             ${currentUser && currentUser.id !== profileId ? `<div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;"><button onclick="handleFollow('${profileId}', ${isFollowing})" class="btn ${isFollowing ? 'btn-ghost' : 'btn-primary'} btn-sm">${isFollowing ? 'Following' : 'Follow'}</button><button onclick="startDm('${profileId}')" class="btn btn-ghost btn-sm"><svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>Message</button></div>` : currentUser && currentUser.id === profileId ? `<button onclick="showEditProfile()" class="btn btn-ghost btn-sm" style="margin-bottom: 1rem;">Edit Profile</button>` : ''}
             </div>
-            <div class="profile-info" style="padding: 1.5rem;">
+            <div class="profile-info">
                 <h2 style="font-size: 1.5rem; font-weight: 800;">${profile.full_name || profile.username} ${verifiedHtml} ${premiumHtml} ${badgeHtml}</h2>
                 <p style="color: var(--text-muted);" class="font-mono">@${profile.username}</p>
-                ${profile.bio ? `<p class="profile-bio" style="margin-top: 0.5rem;">${profile.bio}</p>` : '<p class="profile-bio" style="font-style: italic; color: var(--text-muted); margin-top: 0.5rem;">No bio yet.</p>'}
+                ${profile.bio ? `<p class="profile-bio">${profile.bio}</p>` : '<p class="profile-bio" style="font-style: italic; color: var(--text-muted);">No bio yet.</p>'}
             </div>
             ${profile.domain_verified ? `<div class="profile-meta-row"><a href="https://${profile.custom_domain}" target="_blank" class="profile-meta-item"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18" /></svg> ${profile.custom_domain}</a></div>` : ''}
             ${metaItems.length > 0 ? `<div class="profile-meta-row">${metaItems.join('')}</div>` : ''}
@@ -840,7 +845,7 @@ function renderPostCard(post) {
     return `
         <div class="post-card fade-in" style="position: relative;" onclick="currentView='profile_${post.user_id}'; renderApp()">
             ${currentUser && currentUser.id === post.user_id ? `<button class="delete-post-btn" onclick="event.stopPropagation(); deletePost('${post.id}')"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>` : ''}
-            ${post.is_repost ? `<div class="repost-indicator"><svg style="width: 14px; height: 14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> Reposted by @${post.csns_profiles?.username}</div>` : ''}
+            ${post.is_repost ? `<div class="repost-indicator" style="padding: 0 1rem 0.5rem 4.5rem; font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.5rem;"><svg style="width: 14px; height: 14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> Reposted by @${post.csns_profiles?.username}</div>` : ''}
             <div style="display: flex; gap: 1rem;" onclick="event.stopPropagation()">
                 <img src="${post.csns_profiles?.avatar_url || `https://ui-avatars.com/api/?name=${post.csns_profiles?.username}`}" class="post-avatar" onclick="currentView='profile_${post.user_id}'; renderApp()">
                 <div style="flex: 1;">
@@ -850,7 +855,7 @@ function renderPostCard(post) {
                         <span class="post-username">@${post.csns_profiles?.username}</span>
                         <span style="color: var(--text-muted); font-size: 0.9rem;">• ${timeAgo}</span>
                     </div>
-                    ${post.post_type !== 'post' ? `<div class="post-tag tag-${post.post_type}">${post.post_type}</div>` : ''}
+                    ${post.post_type !== 'post' ? `<div class="post-tag tag-${post.post_type}" style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; margin-bottom: 0.5rem; text-transform: uppercase; background: rgba(168, 85, 247, 0.2); color: #a855f7;">${post.post_type}</div>` : ''}
                     <div class="post-content">${contentHtml}</div>
                     ${parentHtml}
                     ${post.image_url ? `<img src="${post.image_url}" class="post-image" alt="Post image">` : ''}
