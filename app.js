@@ -466,7 +466,7 @@ async function renderMessages() {
 
     const conversationList = Object.values(conversations).sort((a, b) => new Date(b.lastMessage.created_at) - new Date(a.lastMessage.created_at));
 
-    let chatHtml = '<div class="empty-state"><h3>Select a conversation</h3><p>Or start a new one from a user's profile.</p></div>';
+    let chatHtml = `<div class="empty-state"><h3>Select a conversation</h3><p>Or start a new one from a user profile.</p></div>`;
     
     if (activeChatUser) {
         const { data: chatMessages } = await sb.from('csns_messages')
