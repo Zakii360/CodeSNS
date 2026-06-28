@@ -13,6 +13,7 @@ let devTip = "Use `git commit --amend` to modify your most recent commit without
 let activeChatUser = null;
 let selectedPostType = 'post';
 let searchTimeout = null;
+let verifyMethod = 'dns';
 
 async function fetchDevTip() {
     try {
@@ -68,7 +69,6 @@ window.logout = async function() {
     renderApp();
 }
 
-// FIX: Only call checkAuth if we don't already have a user. Prevents modals from closing on tab switch.
 sb.auth.onAuthStateChange((event, session) => {
     if (event === 'SIGNED_IN' && !currentUser) checkAuth();
     else if (event === 'SIGNED_OUT') checkAuth();
@@ -317,10 +317,18 @@ window.updateDnsHost = function(domain) {
     }
 }
 
-window.copyDnsValue = function() {
-    const value = document.getElementById('dns-txt').innerText;
+window.setVerifyMethod = function(method) {
+    verifyMethod = method;
+    document.querySelectorAll('.verify-method-btn').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+    document.getElementById('dns-instructions').style.display = method === 'dns' ? 'block' : 'none';
+    document.getElementById('html-instructions').style.display = method === 'html' ? 'block' : 'none';
+}
+
+window.copyDnsValue = function(type = 'dns') {
+    const value = document.getElementById(type === 'html' ? 'html-txt' : 'dns-txt').innerText;
     navigator.clipboard.writeText(value);
-    alert('Copied DNS value to clipboard!');
+    alert('Copied to clipboard!');
 }
 
 window.showEditProfile = function() {
@@ -334,6 +342,8 @@ window.showEditProfile = function() {
     document.getElementById('edit-domain').value = currentUser.custom_domain || '';
     
     document.getElementById('dns-txt').innerText = `codesns-verify=${currentUser.id}`;
+    document.getElementById('html-txt').innerText = `codesns-verify=${currentUser.id}`;
+    
     if (currentUser.custom_domain && !currentUser.domain_verified) {
         document.getElementById('dns-info').style.display = 'block';
         document.getElementById('dns-host').innerText = `_codesns.${currentUser.custom_domain}`;
@@ -359,18 +369,21 @@ window.saveProfile = async function() {
     renderApp();
 }
 
-// FIX: Properly handle the invoke response without throwing console errors
 window.verifyDomain = async function() {
     const btn = document.getElementById('verify-btn');
     const statusEl = document.getElementById('dns-status');
+    const domainInput = document.getElementById('edit-domain').value;
+    
+    if (!domainInput) return alert("Please enter a domain first.");
+    
     btn.innerText = 'Verifying...';
     statusEl.style.display = 'block';
     statusEl.className = 'dns-status';
-    statusEl.innerText = 'Checking DNS records...';
+    statusEl.innerText = 'Checking records...';
     
     try {
         const { data, error } = await sb.functions.invoke('verify-domain', {
-            body: { domain: currentUser.custom_domain, userId: currentUser.id },
+            body: { domain: domainInput, userId: currentUser.id, method: verifyMethod },
             method: 'POST'
         });
         
@@ -380,9 +393,10 @@ window.verifyDomain = async function() {
             statusEl.className = 'dns-status success';
             statusEl.innerText = 'Domain verified successfully!';
             currentUser.domain_verified = true;
+            currentUser.custom_domain = domainInput;
             setTimeout(() => { closeEditProfile(); renderApp(); }, 1500);
         } else {
-            throw new Error(data?.error || 'Verification failed. Please check your DNS record.');
+            throw new Error(data?.error || 'Verification failed.');
         }
     } catch (error) {
         statusEl.className = 'dns-status error';
@@ -448,23 +462,40 @@ function renderLayout(centerContent, activeNav = 'home') {
                     
                     <div class="modal-input-group"><label class="modal-label">Custom Domain (Premium)</label><input id="edit-domain" type="text" class="modal-input" placeholder="yourdomain.com" oninput="updateDnsHost(this.value)">
                     <div id="dns-info" style="display: none; margin-top: 1rem; border-top: 1px solid var(--border-light); padding-top: 1rem;">
-                        <h3 style="font-size: 0.9rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--text-primary);">DNS Verification Instructions</h3>
-                        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">Add a <strong>TXT record</strong> to your domain's DNS settings to verify ownership.</p>
-                        
-                        <div style="display: grid; grid-template-columns: 100px 1fr; gap: 0.5rem; font-size: 0.8rem; margin-bottom: 1rem; align-items: center;">
-                            <span style="color: var(--text-muted);">Record Type:</span>
-                            <span class="dns-info-box" style="margin:0; padding: 4px 8px;">TXT</span>
-                            
-                            <span style="color: var(--text-muted);">Name/Host:</span>
-                            <span id="dns-host" class="dns-info-box" style="margin:0; padding: 4px 8px;">_codesns.yourdomain.com</span>
-                            
-                            <span style="color: var(--text-muted);">Value:</span>
-                            <div style="display:flex; align-items:center; gap:0.5rem;">
-                                <span id="dns-txt" class="dns-info-box" style="margin:0; padding: 4px 8px; flex:1;">codesns-verify=...</span>
-                                <button onclick="copyDnsValue()" class="btn btn-ghost btn-sm" style="padding: 4px 8px;">Copy</button>
-                            </div>
+                        <h3 style="font-size: 0.9rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--text-primary);">Domain Verification</h3>
+                        <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                            <button class="verify-method-btn active" onclick="setVerifyMethod('dns')">DNS TXT</button>
+                            <button class="verify-method-btn" onclick="setVerifyMethod('html')">HTML File</button>
                         </div>
                         
+                        <div id="dns-instructions">
+                            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">Add a <strong>TXT record</strong> to your domain's DNS settings.</p>
+                            <div style="display: grid; grid-template-columns: 100px 1fr; gap: 0.5rem; font-size: 0.8rem; margin-bottom: 1rem; align-items: center;">
+                                <span style="color: var(--text-muted);">Record Type:</span>
+                                <span class="dns-info-box" style="margin:0; padding: 4px 8px;">TXT</span>
+                                <span style="color: var(--text-muted);">Name/Host:</span>
+                                <span id="dns-host" class="dns-info-box" style="margin:0; padding: 4px 8px;">_codesns.yourdomain.com</span>
+                                <span style="color: var(--text-muted);">Value:</span>
+                                <div style="display:flex; align-items:center; gap:0.5rem;">
+                                    <span id="dns-txt" class="dns-info-box" style="margin:0; padding: 4px 8px; flex:1;">codesns-verify=...</span>
+                                    <button onclick="copyDnsValue('dns')" class="btn btn-ghost btn-sm" style="padding: 4px 8px;">Copy</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="html-instructions" style="display: none;">
+                            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">Create an HTML file and upload it to your website's root directory.</p>
+                            <div style="display: grid; grid-template-columns: 100px 1fr; gap: 0.5rem; font-size: 0.8rem; margin-bottom: 1rem; align-items: center;">
+                                <span style="color: var(--text-muted);">File Name:</span>
+                                <span class="dns-info-box" style="margin:0; padding: 4px 8px;">codesns-verify.html</span>
+                                <span style="color: var(--text-muted);">Content:</span>
+                                <div style="display:flex; align-items:center; gap:0.5rem;">
+                                    <span id="html-txt" class="dns-info-box" style="margin:0; padding: 4px 8px; flex:1;">codesns-verify=...</span>
+                                    <button onclick="copyDnsValue('html')" class="btn btn-ghost btn-sm" style="padding: 4px 8px;">Copy</button>
+                                </div>
+                            </div>
+                        </div>
+
                         <button id="verify-btn" class="btn btn-primary btn-sm" style="width: 100%;" onclick="verifyDomain()">Verify Domain</button>
                         <div id="dns-status" class="dns-status" style="display: none; text-align: center;"></div>
                     </div></div>
