@@ -1,5 +1,5 @@
 const SUPABASE_URL = 'https://tvxugmumfvgnvjacwwfz.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2eHVnbXVtZnZnbnZqYWN3d2Z6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3NjQ1MzEsImV4cCI6MjA5NjM0MDUzMX0.76wR9dblt8W9u-OioqQH7NOethNq1BMfjTDl9xcpYYI'; 
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2eHVnbXVtZnZnbnZqYWN3d2Z6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3NjQ1MzEsImV4cCI6MjA5NjM0MDUzMX0.76wR9dblt8W9u-OioqQH7NOethNq1BMfjTDl9xcpYYI';
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { detectSessionInUrl: true, persistSession: true, autoRefreshToken: true }
@@ -18,6 +18,21 @@ let profileSort = 'newest';
 let replyToCommentId = null;
 let activeFeedTab = 'foryou';
 let activeTag = null;
+let linkPreviewCache = {};
+let verificationCodeSent = null;
+
+// KEYBOARD SHORTCUTS
+document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.key === '/' || (e.metaKey && e.key === 'k') || (e.ctrlKey && e.key === 'k')) {
+        e.preventDefault();
+        document.querySelector('.search-box')?.focus();
+    }
+    if (e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        document.getElementById('post-content')?.focus();
+    }
+});
 
 async function fetchDevTip() {
     try {
@@ -140,6 +155,31 @@ async function initRepoStats() {
             `;
         } catch (e) {}
     }
+}
+
+// LINK PREVIEWS
+window.fetchLinkPreview = async function(url, postId) {
+    if (linkPreviewCache[url]) {
+        const el = document.getElementById(`lp-${postId}`);
+        if (el) el.innerHTML = linkPreviewCache[url];
+        return;
+    }
+    try {
+        const { data, error } = await sb.functions.invoke('link-preview', { body: { url }, method: 'POST' });
+        if (error || data.error) return;
+        
+        const html = `
+            <img src="${data.image || ''}" alt="Preview" onerror="this.style.display='none'">
+            <div class="link-preview-content">
+                <div class="link-preview-title">${data.title}</div>
+                <div class="link-preview-desc">${data.description}</div>
+                <div class="link-preview-domain">${data.siteName}</div>
+            </div>
+        `;
+        linkPreviewCache[url] = html;
+        const el = document.getElementById(`lp-${postId}`);
+        if (el) el.innerHTML = html;
+    } catch (e) {}
 }
 
 window.toggleNotifDropdown = async function(e) {
@@ -394,6 +434,72 @@ window.toggleTheme = function() {
     localStorage.setItem('theme', document.body.classList.contains('light-theme') ? 'light' : 'dark');
 }
 
+// VERIFICATION FLOW
+window.showVerifyModal = function() {
+    document.getElementById('verify-modal').style.display = 'flex';
+}
+
+window.closeVerifyModal = function() {
+    document.getElementById('verify-modal').style.display = 'none';
+    verificationCodeSent = null;
+}
+
+window.sendVerificationCode = async function() {
+    const email = document.getElementById('verify-email').value;
+    if (!email.endsWith('@360-search.com')) return alert('Email must end in @360-search.com');
+    
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    verificationCodeSent = code;
+    
+    await sb.from('csns_email_verifications').insert({ user_id: currentUser.id, email, code });
+    
+    // In a real app, an Edge Function would email this. For now, we log it/alert it for testing.
+    console.log(`Verification code for ${email}: ${code}`);
+    alert(`(DEV MODE) Your verification code is: ${code}`);
+    
+    document.getElementById('verify-step-1').style.display = 'none';
+    document.getElementById('verify-step-2').style.display = 'block';
+}
+
+window.confirmVerificationCode = async function() {
+    const code = document.getElementById('verify-code-input').value;
+    if (code !== verificationCodeSent) return alert('Invalid code.');
+    
+    const { data } = await sb.from('csns_profiles').update({ is_verified: true, is_premium: true }).eq('id', currentUser.id).select().single();
+    currentUser = data;
+    closeVerifyModal();
+    renderApp();
+}
+
+// COLLECTIONS
+window.showCollections = async function() {
+    const { data: collections } = await sb.from('csns_collections').select('*').eq('user_id', currentUser.id);
+    const colList = document.getElementById('collections-list');
+    
+    if (!colList) return;
+    if (collections.length === 0) {
+        colList.innerHTML = '<div style="padding: 2rem; text-align: center; color: var(--text-muted);">No collections yet.</div>';
+    } else {
+        colList.innerHTML = collections.map(c => `
+            <div class="collection-item" onclick="viewCollection('${c.id}')">
+                <div>
+                    <div class="collection-name">${c.name}</div>
+                    <div class="collection-count">Created ${new Date(c.created_at).toLocaleDateString()}</div>
+                </div>
+                <svg style="width: 20px; height: 20px; color: var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+            </div>
+        `).join('');
+    }
+}
+
+window.createCollection = async function() {
+    const name = prompt('Enter collection name:');
+    if (!name) return;
+    await sb.from('csns_collections').insert({ user_id: currentUser.id, name });
+    showCollections();
+}
+
+// DOMAIN VERIFICATION
 window.updateDnsHost = function(domain) { if (domain && domain.trim() !== '') { document.getElementById('dns-info').style.display = 'block'; document.getElementById('dns-host').innerText = `_codesns.${domain}`; } else { document.getElementById('dns-info').style.display = 'none'; } }
 window.setVerifyMethod = function(method) { verifyMethod = method; document.querySelectorAll('.verify-method-btn').forEach(btn => btn.classList.remove('active')); event.target.classList.add('active'); document.getElementById('dns-instructions').style.display = method === 'dns' ? 'block' : 'none'; document.getElementById('html-instructions').style.display = method === 'html' ? 'block' : 'none'; }
 window.copyDnsValue = function(type = 'dns') { const value = document.getElementById(type === 'html' ? 'html-txt' : 'dns-txt').innerText; navigator.clipboard.writeText(value); alert('Copied to clipboard!'); }
@@ -460,10 +566,22 @@ window.handleSearchInput = function(e) {
     if (!query) { resultsDiv.style.display = 'none'; return; }
     searchTimeout = setTimeout(async () => {
         resultsDiv.style.display = 'block'; resultsDiv.innerHTML = '<div class="search-item">Searching...</div>';
-        const cleanQuery = query.replace('@', '');
-        const { data } = await sb.from('csns_profiles').select('*').ilike('username', `%${cleanQuery}%`).limit(5);
-        if (!data || data.length === 0) resultsDiv.innerHTML = '<div class="search-item">No users found.</div>';
-        else resultsDiv.innerHTML = data.map(u => `<div class="search-item" onclick="currentView='profile_${u.id}'; renderApp(); document.getElementById('search-results').style.display='none';"><img src="${u.avatar_url || `https://ui-avatars.com/api/?name=${u.username}`}" class="post-avatar" style="width: 32px; height: 32px;"><div><div style="font-weight: 700; font-size: 0.9rem;">${u.full_name || u.username}</div><div style="font-size: 0.8rem; color: var(--text-muted);" class="font-mono">@${u.username}</div></div></div>`).join('');
+        
+        const { data: users } = await sb.from('csns_profiles').select('*').ilike('username', `%${query.replace('@', '')}%`).limit(3);
+        const { data: posts } = await sb.from('csns_posts').select('id, content').ilike('content', `%${query}%`).limit(3);
+        
+        let html = '';
+        if (users && users.length > 0) {
+            html += '<div class="search-category">Users</div>';
+            html += users.map(u => `<div class="search-item" onclick="currentView='profile_${u.id}'; renderApp(); document.getElementById('search-results').style.display='none';"><img src="${u.avatar_url || `https://ui-avatars.com/api/?name=${u.username}`}" class="post-avatar" style="width: 24px; height: 24px;"><div><div style="font-weight: 700; font-size: 0.8rem;">${u.full_name || u.username}</div><div style="font-size: 0.7rem; color: var(--text-muted);" class="font-mono">@${u.username}</div></div></div>`).join('');
+        }
+        if (posts && posts.length > 0) {
+            html += '<div class="search-category">Posts</div>';
+            html += posts.map(p => `<div class="search-item" onclick="currentView='feed'; activeTag=null; renderApp(); document.getElementById('search-results').style.display='none';"><div style="font-size: 0.8rem; color: var(--text-secondary);">${p.content.substring(0, 40)}...</div></div>`).join('');
+        }
+        if (!html) html = '<div class="search-item">No results found.</div>';
+        
+        resultsDiv.innerHTML = html;
     }, 300);
 }
 
@@ -485,6 +603,7 @@ function renderLayout(centerContent, activeNav = 'home') {
     const avatarUrl = currentUser?.avatar_url || `https://ui-avatars.com/api/?name=${currentUser?.username || 'Guest'}`;
     return `
         <div class="main-layout" onclick="document.getElementById('notif-dropdown')?.classList.remove('active'); document.getElementById('search-results')?.style.setProperty('display', 'none')">
+            <!-- EDIT PROFILE MODAL -->
             <div id="edit-modal" class="modal-overlay" style="display: none;">
                 <div class="modal-content" style="max-height: 90vh; overflow-y: auto;">
                     <div class="modal-header"><h2 class="modal-title">Edit Profile</h2><button class="modal-close" onclick="closeEditProfile()">&times;</button></div>
@@ -508,7 +627,26 @@ function renderLayout(centerContent, activeNav = 'home') {
                     <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem;"><button class="btn btn-ghost btn-sm" onclick="closeEditProfile()">Cancel</button><button class="btn btn-primary btn-sm" onclick="saveProfile()">Save</button></div>
                 </div>
             </div>
+            
+            <!-- QUOTE MODAL -->
             <div id="quote-modal" class="modal-overlay" style="display: none;"><div class="modal-content"><div class="modal-header"><h2 class="modal-title">Quote Post</h2><button class="modal-close" onclick="closeQuoteModal()">&times;</button></div><textarea id="quote-content" class="modal-input modal-textarea" placeholder="Add a comment..." rows="4"></textarea><div style="display: flex; justify-content: flex-end; margin-top: 1rem;"><button class="btn btn-primary btn-sm" onclick="submitQuote()">Post</button></div></div></div>
+
+            <!-- VERIFICATION MODAL -->
+            <div id="verify-modal" class="modal-overlay" style="display: none;">
+                <div class="modal-content">
+                    <div class="modal-header"><h2 class="modal-title">Get Verified</h2><button class="modal-close" onclick="closeVerifyModal()">&times;</button></div>
+                    <div id="verify-step-1" class="verify-step">
+                        <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1rem;">Enter your @360-search.com email to receive a verification code.</p>
+                        <input id="verify-email" type="email" class="modal-input" placeholder="yourname@360-search.com">
+                        <button onclick="sendVerificationCode()" class="btn btn-primary" style="width: 100%;">Send Code</button>
+                    </div>
+                    <div id="verify-step-2" class="verify-step" style="display: none;">
+                        <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1rem;">Enter the 6-digit code sent to your email.</p>
+                        <input id="verify-code-input" type="text" maxlength="6" class="modal-input verify-code-input" placeholder="123456">
+                        <button onclick="confirmVerificationCode()" class="btn btn-primary" style="width: 100%;">Verify</button>
+                    </div>
+                </div>
+            </div>
 
             <aside class="left-sidebar">
                 <div class="logo">
@@ -533,6 +671,7 @@ function renderLayout(centerContent, activeNav = 'home') {
                 </a>
 
                 ${currentUser ? `
+                    <button class="btn btn-ghost btn-sm" style="margin-bottom: 0.5rem; width: 100%;" onclick="showVerifyModal()">Get Verified</button>
                     <div style="position: relative; margin-bottom: 1rem;">
                         <div class="user-card" onclick="toggleNotifDropdown(event)">
                             <img src="${avatarUrl}" class="post-avatar" style="width: 40px; height: 40px;">
@@ -551,7 +690,7 @@ function renderLayout(centerContent, activeNav = 'home') {
             <main class="center-feed">${centerContent}</main>
 
             <aside class="right-sidebar">
-                <div style="position: relative;"><input type="text" class="search-box" placeholder="Search @users..." oninput="handleSearchInput(event)" onclick="event.stopPropagation()"><div id="search-results" class="search-results" style="display: none;"></div></div>
+                <div style="position: relative;"><input type="text" class="search-box" placeholder="Search users, posts, #tags... (Press /)" oninput="handleSearchInput(event)" onclick="event.stopPropagation()"><div id="search-results" class="search-results" style="display: none;"></div></div>
                 <div class="widget"><h3 class="widget-title"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.24 17 6.343 18.657 8 18 12 18 12s.5 1 1.5 1.5c0 0-1 2-2 3.157z" /></svg> Trending Repos</h3><div id="trending-repos"><div class="trend-item">Loading...</div></div></div>
                 <div class="widget"><h3 class="widget-title"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg> AI Dev Tip</h3><p id="dev-tip-text" style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5;">${devTip}</p></div>
             </aside>
@@ -638,15 +777,28 @@ async function renderJobs() {
 
 async function renderSaved() {
     if (!currentUser) { app.innerHTML = renderLayout('<div class="empty-state">Sign in to view saved posts.</div>', 'saved'); return; }
+    
     const { data: bookmarks } = await sb.from('csns_bookmarks').select('post_id').eq('user_id', currentUser.id);
     const postIds = bookmarks.map(b => b.post_id);
     let posts = [];
     if (postIds.length > 0) { const { data } = await fetchFeedPosts(); posts = data.filter(p => postIds.includes(p.id)); }
-    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Saved Posts</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No saved posts yet.</div>'}</div>`, 'saved');
+    
+    const centerContent = `
+        <header class="page-header">
+            <h1 class="page-title">Saved & Collections</h1>
+        </header>
+        <div style="padding: 1rem; border-bottom: 1px solid var(--border-light);">
+            <button onclick="createCollection()" class="btn btn-primary btn-sm">+ New Collection</button>
+        </div>
+        <div id="collections-list" style="border-bottom: 1px solid var(--border-light);"></div>
+        <div style="padding: 1rem 1.5rem; font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">All Saved Posts</div>
+        <div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No saved posts yet.</div>'}</div>
+    `;
+    app.innerHTML = renderLayout(centerContent, 'saved');
     fetchTrendingRepos(); applySyntaxHighlighting(); initRepoStats();
+    showCollections();
 }
 
-// FIX: Syntax error was here, missing parenthesis in .join('')
 async function renderFollowing() {
     if (!currentUser) { app.innerHTML = renderLayout('<div class="empty-state">Sign in to see following feed.</div>', 'following'); return; }
     const { data: follows } = await sb.from('csns_follows').select('following_id').eq('follower_id', currentUser.id);
@@ -797,33 +949,6 @@ async function renderProfile(profileId) {
 
 function applySyntaxHighlighting() { document.querySelectorAll('pre code').forEach(block => { if (!block.dataset.highlighted) { hljs.highlightElement(block); block.dataset.highlighted = 'true'; } }); }
 
-// State to cache link previews so we don't fetch them every render
-let linkPreviewCache = {};
-
-window.fetchLinkPreview = async function(url, postId) {
-    if (linkPreviewCache[url]) {
-        const el = document.getElementById(`lp-${postId}`);
-        if (el) el.innerHTML = linkPreviewCache[url];
-        return;
-    }
-    try {
-        const { data, error } = await sb.functions.invoke('link-preview', { body: { url }, method: 'POST' });
-        if (error || data.error) return;
-        
-        const html = `
-            <img src="${data.image || ''}" alt="Preview" onerror="this.style.display='none'">
-            <div class="link-preview-content">
-                <div class="link-preview-title">${data.title}</div>
-                <div class="link-preview-desc">${data.description}</div>
-                <div class="link-preview-domain">${data.siteName}</div>
-            </div>
-        `;
-        linkPreviewCache[url] = html;
-        const el = document.getElementById(`lp-${postId}`);
-        if (el) el.innerHTML = html;
-    } catch (e) {}
-}
-
 function renderPostCard(post) {
     const isSaved = currentUser ? post.csns_bookmarks.some(b => b.user_id === currentUser.id) : false;
     const isLiked = currentUser ? post.csns_likes.some(l => l.user_id === currentUser.id) : false;
@@ -832,17 +957,19 @@ function renderPostCard(post) {
     let contentHtml = post.content
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/```([\s\S]*?)```/g, (match, p1) => `<div class="code-block-wrapper"><div class="code-actions"><button class="code-btn" onclick="copyCode(this)">Copy</button><button class="code-btn" onclick="runCode(this)">Run</button></div><pre class="code-block"><code class="hljs">${p1}</code></pre><div class="code-output"></div></div>`)
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/^&gt; (.*)$/gm, '<blockquote>$1</blockquote>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
         .replace(/#(\w+)/g, '<a class="hashtag" onclick="searchTag(\'$1\')">#$1</a>')
         .replace(/\n/g, '<br>');
         
     let parentHtml = post.parent ? `<div class="quote-embed" onclick="event.stopPropagation(); currentView='profile_${post.parent.user_id}'; renderApp()" style="border: 1px dashed var(--border-medium); border-radius: var(--radius-md); padding: 1rem; margin-top: 1rem; cursor: pointer;"><span style="font-size: 0.8rem; color: var(--text-muted);">Quote from @${post.parent.csns_profiles?.username}</span><p style="margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);">${post.parent.content.substring(0, 140)}...</p></div>` : '';
 
-    // Link Preview Extraction
     let linkPreviewHtml = '';
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const urls = post.content.match(urlRegex);
     if (urls && urls.length > 0) {
-        // Filter out github/gitlab repo links if they are already embedded
         const genericUrls = urls.filter(u => !post.csns_post_repos?.some(r => u.includes(r.repo_url)));
         if (genericUrls.length > 0) {
             const targetUrl = genericUrls[0];
