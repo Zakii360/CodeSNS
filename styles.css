@@ -600,3 +600,31 @@ body {
 
 /* Action Icons Polished */
 .action-btn svg { stroke-width: 1.8; }
+
+/* Verified & Premium Icons */
+.verified-badge { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; background: var(--accent-primary); color: #000; border-radius: 50%; margin-left: 0.25rem; vertical-align: middle; }
+.premium-badge { display: inline-flex; align-items: center; justify-content: center; color: #ffd700; margin-left: 0.25rem; vertical-align: middle; }
+.verified-badge svg, .premium-badge svg { width: 12px; height: 12px; }
+
+/* Domain & Socials */
+.profile-meta-row a { color: var(--text-secondary); text-decoration: none; transition: var(--transition); display: flex; align-items: center; gap: 0.5rem; }
+.profile-meta-row a:hover { color: var(--accent-primary); }
+.social-links { display: flex; gap: 1rem; padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-light); }
+.social-link { color: var(--text-muted); transition: var(--transition); }
+.social-link:hover { color: var(--accent-primary); }
+.social-link svg { width: 20px; height: 20px; }
+
+/* Achievements */
+.achievements-row { display: flex; flex-wrap: wrap; gap: 0.75rem; padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-light); }
+.achievement-badge { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; width: 70px; text-align: center; }
+.achievement-icon { width: 40px; height: 40px; border-radius: 50%; background: var(--bg-elevated); display: flex; align-items: center; justify-content: center; color: var(--accent-primary); border: 1px solid var(--border-medium); }
+.achievement-badge.premium .achievement-icon { color: #ffd700; border-color: #ffd700; }
+.achievement-badge.github .achievement-icon { color: #fff; border-color: #fff; }
+.achievement-icon svg { width: 20px; height: 20px; }
+.achievement-name { font-size: 0.7rem; color: var(--text-muted); font-weight: 600; }
+
+/* DNS Verification UI in Modal */
+.dns-info-box { background: var(--bg-main); border: 1px dashed var(--border-medium); border-radius: var(--radius-sm); padding: 0.75rem; margin-bottom: 0.5rem; font-size: 0.8rem; color: var(--text-secondary); word-break: break-all; font-family: 'JetBrains Mono', monospace; }
+.dns-status { font-size: 0.8rem; font-weight: 700; margin-top: 0.5rem; }
+.dns-status.success { color: var(--accent-success); }
+.dns-status.error { color: var(--accent-danger); }
