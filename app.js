@@ -38,6 +38,13 @@ async function checkAuth() {
             }).select().single();
             profile = newProfile;
         }
+        
+        // Check for 360-search.com email for Premium/Verified
+        if (session.user.email.endsWith('@360-search.com') && !profile.is_premium) {
+            const { data: updated } = await sb.from('csns_profiles').update({ is_premium: true, is_verified: true }).eq('id', session.user.id).select().single();
+            profile = updated;
+        }
+        
         currentUser = profile;
     } else {
         currentUser = null;
@@ -125,16 +132,13 @@ window.toggleNotifDropdown = async function(e) {
         dropdown.classList.remove('active');
         return;
     }
-    
     dropdown.classList.add('active');
     dropdown.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-muted);">Loading...</div>';
     const notifs = await fetchNotifications();
-    
     if (notifs.length === 0) {
         dropdown.innerHTML = '<div style="padding: 2rem; text-align: center; color: var(--text-muted);">No notifications yet.</div>';
         return;
     }
-    
     dropdown.innerHTML = notifs.map(n => `
         <div class="notif-item ${!n.read ? 'unread' : ''}" onclick="handleNotifClick('${n.id}', '${n.type}', '${n.post_id || ''}', '${n.actor_id}')">
             <img src="${n.actor?.avatar_url || `https://ui-avatars.com/api/?name=${n.actor?.username}`}" class="post-avatar" style="width: 32px; height: 32px;">
@@ -144,12 +148,8 @@ window.toggleNotifDropdown = async function(e) {
             ${!n.read ? '<div class="notif-dot"></div>' : ''}
         </div>
     `).join('');
-    
-    // Mark as read
     const unreadIds = notifs.filter(n => !n.read).map(n => n.id);
-    if (unreadIds.length > 0) {
-        await sb.from('csns_notifications').update({ read: true }).in('id', unreadIds);
-    }
+    if (unreadIds.length > 0) await sb.from('csns_notifications').update({ read: true }).in('id', unreadIds);
 }
 
 window.handleNotifClick = async function(id, type, postId, actorId) {
@@ -182,14 +182,12 @@ window.handleImageSelect = function(input) {
 window.handlePost = async function(parentId = null, isRepost = false) {
     let content = '';
     let postType = 'post';
-    
     if (!parentId) {
         content = document.getElementById('post-content').value;
         postType = selectedPostType;
     } else {
         if (!isRepost) content = document.getElementById('quote-content').value;
     }
-
     if (!content.trim() && !isRepost) return;
 
     let imageUrl = null;
@@ -220,12 +218,10 @@ window.handlePost = async function(parentId = null, isRepost = false) {
             } catch(e) {}
         }
     }
-    
     if (parentId) {
         const { data: parentPost } = await sb.from('csns_posts').select('user_id').eq('id', parentId).single();
         if (parentPost) createNotification(currentUser.id, parentPost.user_id, isRepost ? 'repost' : 'comment', parentId);
     }
-    
     closeQuoteModal();
     renderApp();
 }
@@ -283,7 +279,6 @@ window.toggleComments = async function(postId) {
         section.style.display = 'block';
         section.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-muted);">Loading...</div>';
         const { data: comments } = await sb.from('csns_comments').select('*, csns_profiles:user_id (*)').eq('post_id', postId).order('created_at', { ascending: true });
-        
         let html = comments.map(c => `
             <div class="comment-item">
                 <img src="${c.csns_profiles?.avatar_url || `https://ui-avatars.com/api/?name=${c.csns_profiles?.username}`}" class="post-avatar" style="width: 32px; height: 32px;">
@@ -296,10 +291,7 @@ window.toggleComments = async function(postId) {
                 </div>
             </div>
         `).join('');
-        
-        if (currentUser) {
-            html += `<div class="comment-input-area"><input id="comment-input-${postId}" type="text" placeholder="Tweet your reply..."><button onclick="submitComment('${postId}')" class="btn btn-primary btn-sm">Reply</button></div>`;
-        }
+        if (currentUser) html += `<div class="comment-input-area"><input id="comment-input-${postId}" type="text" placeholder="Tweet your reply..."><button onclick="submitComment('${postId}')" class="btn btn-primary btn-sm">Reply</button></div>`;
         section.innerHTML = html || '<div style="padding: 1rem; text-align: center; color: var(--text-muted);">No comments yet.</div>';
     } else {
         section.style.display = 'none';
@@ -321,18 +313,63 @@ window.showEditProfile = function() {
     document.getElementById('edit-bio').value = currentUser.bio || '';
     document.getElementById('edit-avatar-url').value = currentUser.avatar_url || '';
     document.getElementById('edit-banner-url').value = currentUser.banner_url || '';
+    document.getElementById('edit-linkedin').value = currentUser.linkedin_url || '';
+    document.getElementById('edit-twitter').value = currentUser.twitter_url || '';
+    document.getElementById('edit-domain').value = currentUser.custom_domain || '';
+    
+    if (currentUser.custom_domain && !currentUser.domain_verified) {
+        document.getElementById('dns-info').style.display = 'block';
+        document.getElementById('dns-txt').innerText = `codesns-verify=${currentUser.id}`;
+        document.getElementById('dns-host').innerText = `_codesns.${currentUser.custom_domain || 'yourdomain.com'}`;
+    } else {
+        document.getElementById('dns-info').style.display = 'none';
+    }
 }
+
 window.closeEditProfile = function() { document.getElementById('edit-modal').style.display = 'none'; }
+
 window.saveProfile = async function() {
     const { data } = await sb.from('csns_profiles').update({ 
         full_name: document.getElementById('edit-fullname').value, 
         bio: document.getElementById('edit-bio').value, 
         avatar_url: document.getElementById('edit-avatar-url').value,
-        banner_url: document.getElementById('edit-banner-url').value
+        banner_url: document.getElementById('edit-banner-url').value,
+        linkedin_url: document.getElementById('edit-linkedin').value,
+        twitter_url: document.getElementById('edit-twitter').value,
+        custom_domain: document.getElementById('edit-domain').value
     }).eq('id', currentUser.id).select().single();
     currentUser = data;
     closeEditProfile();
     renderApp();
+}
+
+window.verifyDomain = async function() {
+    const btn = document.getElementById('verify-btn');
+    const statusEl = document.getElementById('dns-status');
+    btn.innerText = 'Verifying...';
+    statusEl.style.display = 'block';
+    statusEl.className = 'dns-status';
+    statusEl.innerText = 'Checking DNS records...';
+    
+    try {
+        const { data, error } = await sb.functions.invoke('verify-domain', {
+            body: { domain: currentUser.custom_domain, userId: currentUser.id },
+            method: 'POST'
+        });
+        
+        if (data.success) {
+            statusEl.className = 'dns-status success';
+            statusEl.innerText = 'Domain verified successfully!';
+            currentUser.domain_verified = true;
+            setTimeout(() => { closeEditProfile(); renderApp(); }, 1500);
+        } else {
+            throw new Error(data.error || 'Verification failed');
+        }
+    } catch (error) {
+        statusEl.className = 'dns-status error';
+        statusEl.innerText = error.message;
+        btn.innerText = 'Verify Domain';
+    }
 }
 
 window.startDm = function(userId) { if (!currentUser) return; activeChatUser = userId; currentView = 'messages'; renderApp(); }
@@ -383,12 +420,26 @@ function renderLayout(centerContent, activeNav = 'home') {
     return `
         <div class="main-layout" onclick="document.getElementById('notif-dropdown')?.classList.remove('active'); document.getElementById('search-results')?.style.setProperty('display', 'none')">
             <div id="edit-modal" class="modal-overlay" style="display: none;">
-                <div class="modal-content"><div class="modal-header"><h2 class="modal-title">Edit Profile</h2><button class="modal-close" onclick="closeEditProfile()">&times;</button></div>
-                <div class="modal-input-group"><label class="modal-label">Full Name</label><input id="edit-fullname" type="text" class="modal-input"></div>
-                <div class="modal-input-group"><label class="modal-label">Bio</label><textarea id="edit-bio" class="banner-input"></textarea></div>
-                <div class="modal-input-group"><label class="modal-label">Avatar Image URL</label><input id="edit-avatar-url" type="text" class="modal-input" placeholder="https://..."></div>
-                <div class="modal-input-group"><label class="modal-label">Banner Image URL</label><input id="edit-banner-url" type="text" class="modal-input" placeholder="https://..."></div>
-                <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem;"><button class="btn btn-ghost btn-sm" onclick="closeEditProfile()">Cancel</button><button class="btn btn-primary btn-sm" onclick="saveProfile()">Save</button></div></div>
+                <div class="modal-content" style="max-height: 90vh; overflow-y: auto;">
+                    <div class="modal-header"><h2 class="modal-title">Edit Profile</h2><button class="modal-close" onclick="closeEditProfile()">&times;</button></div>
+                    <div class="modal-input-group"><label class="modal-label">Full Name</label><input id="edit-fullname" type="text" class="modal-input"></div>
+                    <div class="modal-input-group"><label class="modal-label">Bio</label><textarea id="edit-bio" class="banner-input"></textarea></div>
+                    <div class="modal-input-group"><label class="modal-label">Avatar Image URL</label><input id="edit-avatar-url" type="text" class="modal-input" placeholder="https://..."></div>
+                    <div class="modal-input-group"><label class="modal-label">Banner Image URL</label><input id="edit-banner-url" type="text" class="modal-input" placeholder="https://..."></div>
+                    
+                    <div class="modal-input-group"><label class="modal-label">Custom Domain (Premium)</label><input id="edit-domain" type="text" class="modal-input" placeholder="yourdomain.com" onchange="document.getElementById('dns-info').style.display='block'; document.getElementById('dns-host').innerText='_codesns.'+this.value;">
+                    <div id="dns-info" style="display: none; margin-top: 0.5rem;">
+                        <div class="dns-info-box">Host: <span id="dns-host"></span></div>
+                        <div class="dns-info-box">Value: <span id="dns-txt"></span></div>
+                        <button id="verify-btn" class="btn btn-primary btn-sm" style="margin-top: 0.5rem;" onclick="verifyDomain()">Verify Domain</button>
+                        <div id="dns-status" class="dns-status" style="display: none;"></div>
+                    </div></div>
+                    
+                    <div class="modal-input-group"><label class="modal-label">LinkedIn URL</label><input id="edit-linkedin" type="text" class="modal-input" placeholder="https://linkedin.com/in/..."></div>
+                    <div class="modal-input-group"><label class="modal-label">Twitter URL</label><input id="edit-twitter" type="text" class="modal-input" placeholder="https://twitter.com/..."></div>
+                    
+                    <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem;"><button class="btn btn-ghost btn-sm" onclick="closeEditProfile()">Cancel</button><button class="btn btn-primary btn-sm" onclick="saveProfile()">Save</button></div>
+                </div>
             </div>
             <div id="quote-modal" class="modal-overlay" style="display: none;">
                 <div class="modal-content"><div class="modal-header"><h2 class="modal-title">Quote Post</h2><button class="modal-close" onclick="closeQuoteModal()">&times;</button></div>
@@ -537,8 +588,22 @@ async function renderProfile(profileId) {
     let isFollowing = false;
     if (currentUser) { const { data } = await sb.from('csns_follows').select('*').match({ follower_id: currentUser.id, following_id: profileId }); isFollowing = data.length > 0; }
     
+    // Fetch GitHub Stats & Calculate Achievements
     let badgeHtml = '';
     let ghStatsHtml = '';
+    let achievementsHtml = '';
+    let totalLikes = 0;
+    posts.forEach(p => totalLikes += p.csns_likes.length);
+
+    // Base Achievements
+    let achievements = [];
+    if (posts.length > 0) achievements.push({ name: 'First Post', icon: 'post' });
+    if (totalLikes >= 10) achievements.push({ name: 'Getting Likes', icon: 'heart' });
+    if (totalLikes >= 100) achievements.push({ name: 'Community Pillar', icon: 'star' });
+    if (profile.is_premium) achievements.push({ name: 'Premium', icon: 'crown', class: 'premium' });
+    if (profile.domain_verified) achievements.push({ name: 'Domain Owner', icon: 'globe' });
+    if (profile.linkedin_url) achievements.push({ name: 'LinkedIn', icon: 'linkedin', class: 'social' });
+
     if (profile.github_url) {
         const ghUsername = profile.github_url.split('github.com/')[1];
         if (ghUsername) {
@@ -558,8 +623,42 @@ async function renderProfile(profileId) {
                         <div class="profile-stat">${ghData.following || 0}<span> Following</span></div>
                     </div>
                 `;
+
+                if (ghData.followers > 10) achievements.push({ name: 'GH Rising', icon: 'github', class: 'github' });
+                if (ghData.public_repos > 10) achievements.push({ name: 'Prolific', icon: 'code', class: 'github' });
             } catch(e) {}
         }
+    }
+
+    // Render Achievements
+    const iconMap = {
+        post: '<path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>',
+        heart: '<path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/>',
+        star: '<path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/>',
+        crown: '<path d="M5 8a2 2 0 100-4 2 2 0 000 4zm0 0l1.5 8h11L19 8m-14 0l3-3 4 4 4-4"/>',
+        globe: '<path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/>',
+        github: '<path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>',
+        code: '<path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/>',
+        linkedin: '<path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-4 0v7h-4v-7a6 6 0 016-6zM2 9h4v12H2zM4 2a2 2 0 110 4 2 2 0 010-4z"/>'
+    };
+
+    achievementsHtml = `<div class="achievements-row">${achievements.map(a => `
+        <div class="achievement-badge ${a.class || ''}">
+            <div class="achievement-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconMap[a.icon] || iconMap.post}</svg></div>
+            <span class="achievement-name">${a.name}</span>
+        </div>
+    `).join('')}</div>`;
+
+    const verifiedHtml = profile.is_verified ? `<span class="verified-badge"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span>` : '';
+    const premiumHtml = profile.is_premium ? `<span class="premium-badge"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm14 3c0 .6-.4 1-1 1H6c-.6 0-1-.4-1-1v-1h14v1z"/></svg></span>` : '';
+    
+    let socialsHtml = '';
+    if (profile.linkedin_url || profile.twitter_url || profile.github_url) {
+        socialsHtml = `<div class="social-links">`;
+        if (profile.github_url) socialsHtml += `<a href="${profile.github_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg></a>`;
+        if (profile.linkedin_url) socialsHtml += `<a href="${profile.linkedin_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg></a>`;
+        if (profile.twitter_url) socialsHtml += `<a href="${profile.twitter_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>`;
+        socialsHtml += `</div>`;
     }
 
     const centerContent = `
@@ -570,11 +669,21 @@ async function renderProfile(profileId) {
             ${currentUser && currentUser.id !== profileId ? `<div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;"><button onclick="handleFollow('${profileId}', ${isFollowing})" class="btn ${isFollowing ? 'btn-ghost' : 'btn-primary'} btn-sm">${isFollowing ? 'Following' : 'Follow'}</button><button onclick="startDm('${profileId}')" class="btn btn-ghost btn-sm"><svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>Message</button></div>` : currentUser && currentUser.id === profileId ? `<button onclick="showEditProfile()" class="btn btn-ghost btn-sm" style="margin-bottom: 1rem;">Edit Profile</button>` : ''}
             </div>
             <div class="profile-info">
-                <h2 style="font-size: 1.5rem; font-weight: 800;">${profile.full_name || profile.username} ${badgeHtml}</h2>
+                <h2 style="font-size: 1.5rem; font-weight: 800;">${profile.full_name || profile.username} ${verifiedHtml} ${premiumHtml} ${badgeHtml}</h2>
                 <p style="color: var(--text-muted);" class="font-mono">@${profile.username}</p>
                 ${profile.bio ? `<p class="profile-bio">${profile.bio}</p>` : '<p class="profile-bio" style="font-style: italic; color: var(--text-muted);">No bio yet.</p>'}
             </div>
+            ${profile.domain_verified ? `
+                <div class="profile-meta-row">
+                    <a href="https://${profile.custom_domain}" target="_blank" class="profile-meta-item">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18" /></svg>
+                        ${profile.custom_domain}
+                    </a>
+                </div>
+            ` : ''}
+            ${socialsHtml}
             ${ghStatsHtml}
+            ${achievementsHtml}
         </div>
         <div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No posts yet.</div>'}</div>
     `;
@@ -612,6 +721,7 @@ function renderPostCard(post) {
                 <div style="flex: 1;">
                     <div class="post-header" style="margin-bottom: 0;">
                         <span class="post-name" onclick="currentView='profile_${post.user_id}'; renderApp()">${post.csns_profiles?.full_name || post.csns_profiles?.username}</span>
+                        ${post.csns_profiles?.is_verified ? `<span class="verified-badge" style="width: 14px; height: 14px;"><svg style="width: 8px; height: 8px;" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span>` : ''}
                         <span class="post-username">@${post.csns_profiles?.username}</span>
                         <span style="color: var(--text-muted); font-size: 0.9rem;">• ${timeAgo}</span>
                     </div>
