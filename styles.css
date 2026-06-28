@@ -670,3 +670,11 @@ body {
 .sort-dropdown { background: var(--bg-surface); border: 1px solid var(--border-medium); color: var(--text-primary); border-radius: var(--radius-sm); padding: 0.35rem 0.5rem; font-size: 0.85rem; margin-left: auto; outline: none; }
 .reply-btn { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; cursor: pointer; background: none; border: none; padding: 0; font-weight: 600; }
 .reply-btn:hover { color: var(--accent-primary); }
+
+.logout-btn:hover { color: #ff3b5c !important; background: rgba(255, 59, 92, 0.1) !important; }
+.delete-post-btn { position: absolute; top: 16px; right: 16px; color: var(--text-muted); cursor: pointer; opacity: 0; transition: opacity 0.2s; background: none; border: none; }
+.post-card:hover .delete-post-btn { opacity: 1; }
+.delete-post-btn:hover { color: #ff3b5c; }
+.sort-dropdown { background: var(--bg-surface); border: 1px solid var(--border-medium); color: var(--text-primary); border-radius: var(--radius-sm); padding: 0.35rem 0.5rem; font-size: 0.85rem; margin-left: auto; outline: none; }
+.reply-btn { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; cursor: pointer; background: none; border: none; padding: 0; font-weight: 600; }
+.reply-btn:hover { color: var(--accent-primary); }
