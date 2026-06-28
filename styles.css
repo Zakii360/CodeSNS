@@ -678,3 +678,11 @@ body {
 .sort-dropdown { background: var(--bg-surface); border: 1px solid var(--border-medium); color: var(--text-primary); border-radius: var(--radius-sm); padding: 0.35rem 0.5rem; font-size: 0.85rem; margin-left: auto; outline: none; }
 .reply-btn { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; cursor: pointer; background: none; border: none; padding: 0; font-weight: 600; }
 .reply-btn:hover { color: var(--accent-primary); }
+
+.poll-container { margin-top: 1rem; border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 1rem; background: var(--bg-surface); }
+.poll-option { margin-bottom: 0.5rem; cursor: pointer; transition: var(--transition); }
+.poll-option:hover { opacity: 0.8; }
+.poll-btn { width: 100%; text-align: left; background: var(--bg-elevated); border: 1px solid var(--border-medium); color: var(--text-primary); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); font-size: 0.9rem; cursor: pointer; }
+.poll-btn:hover { border-color: var(--accent-primary); }
+.poll-results-bar { width: 100%; height: 8px; background: var(--bg-elevated); border-radius: 4px; overflow: hidden; margin-top: 0.25rem; }
+.poll-results-fill { height: 100%; background: var(--accent-primary); border-radius: 4px; }
