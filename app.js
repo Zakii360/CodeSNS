@@ -1,51 +1,53 @@
-// INITIALIZE SUPABASE
+// ==========================================
+// 1. INITIALIZATION
+// ==========================================
 const SUPABASE_URL = 'https://tvxugmumfvgnvjacwwfz.supabase.co'; 
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2eHVnbXVtZnZnbnZqYWN3d2Z6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3NjQ1MzEsImV4cCI6MjA5NjM0MDUzMX0.76wR9dblt8W9u-OioqQH7NOethNq1BMfjTDl9xcpYYI'; 
-const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Use 'sb' instead of 'supabase' to avoid clashing with the CDN global variable
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const app = document.getElementById('app');
-
-// State
 let currentUser = null;
-let currentView = 'feed'; // 'feed' or 'profile'
+let currentView = 'feed'; 
 
 // ==========================================
-// AUTH & ROUTING
+// 2. AUTH & ROUTING
 // ==========================================
-
 async function checkAuth() {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await sb.auth.getSession();
     if (session) {
-        const { data } = await supabase.from('csns_profiles').select('*').eq('id', session.user.id).single();
+        const { data } = await sb.from('csns_profiles').select('*').eq('id', session.user.id).single();
         currentUser = data;
+    } else {
+        currentUser = null;
     }
     renderApp();
 }
 
-async function loginWithGithub() {
-    await supabase.auth.signInWithOAuth({
+window.loginWithGithub = async function() {
+    await sb.auth.signInWithOAuth({
         provider: 'github',
         options: { redirectTo: window.location.href }
     });
 }
 
-async function logout() {
-    await supabase.auth.signOut();
+window.logout = async function() {
+    await sb.auth.signOut();
     currentUser = null;
+    currentView = 'feed';
     renderApp();
 }
 
-supabase.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_IN') checkAuth();
-    if (event === 'SIGNED_OUT') checkAuth();
+sb.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') checkAuth();
 });
 
 // ==========================================
-// DATA FETCHING
+// 3. DATA FETCHING
 // ==========================================
-
 async function fetchPosts(profileId = null) {
-    let query = supabase.from('csns_posts').select(`
+    let query = sb.from('csns_posts').select(`
         *,
         csns_profiles:user_id (*),
         csns_post_repos (*),
@@ -53,21 +55,27 @@ async function fetchPosts(profileId = null) {
     `).order('created_at', { ascending: false });
 
     if (profileId) query = query.eq('user_id', profileId);
-
     const { data } = await query;
     return data || [];
 }
 
-// ==========================================
-// ACTIONS (Post, Like, Follow)
-// ==========================================
+async function fetchComments(postId) {
+    const { data } = await sb.from('csns_comments')
+        .select('*, csns_profiles:user_id (*)')
+        .eq('post_id', postId)
+        .order('created_at', { ascending: true });
+    return data || [];
+}
 
-async function handlePost() {
+// ==========================================
+// 4. ACTIONS (Post, Like, Follow, Comment)
+// ==========================================
+window.handlePost = async function() {
     const content = document.getElementById('post-content').value;
     const repoUrl = document.getElementById('repo-url').value;
     if (!content.trim()) return;
 
-    const { data: newPost, error } = await supabase.from('csns_posts').insert({
+    const { data: newPost, error } = await sb.from('csns_posts').insert({
         content,
         user_id: currentUser.id
     }).select('id').single();
@@ -80,7 +88,7 @@ async function handlePost() {
             const parts = u.pathname.split('/').filter(Boolean);
             if (parts.length >= 2 && (u.hostname.includes('github') || u.hostname.includes('gitlab'))) {
                 const platform = u.hostname.includes('github') ? 'github' : 'gitlab';
-                await supabase.from('csns_post_repos').insert({
+                await sb.from('csns_post_repos').insert({
                     post_id: newPost.id,
                     platform,
                     owner: parts[0],
@@ -88,42 +96,73 @@ async function handlePost() {
                     repo_url: repoUrl
                 });
             }
-        } catch(e) { /* Invalid URL, ignore */ }
+        } catch(e) {}
     }
 
-    document.getElementById('post-content').value = '';
-    document.getElementById('repo-url').value = '';
     renderApp();
 }
 
-async function handleLike(postId, isLiked) {
+window.handleLike = async function(postId, isLiked) {
     if (!currentUser) return alert('Please login to like posts.');
     if (isLiked) {
-        await supabase.from('csns_likes').delete().match({ post_id: postId, user_id: currentUser.id });
+        await sb.from('csns_likes').delete().match({ post_id: postId, user_id: currentUser.id });
     } else {
-        await supabase.from('csns_likes').insert({ post_id: postId, user_id: currentUser.id });
+        await sb.from('csns_likes').insert({ post_id: postId, user_id: currentUser.id });
     }
     renderApp();
 }
 
-async function handleFollow(targetId, isFollowing) {
+window.handleFollow = async function(targetId, isFollowing) {
     if (!currentUser) return;
     if (isFollowing) {
-        await supabase.from('csns_follows').delete().match({ follower_id: currentUser.id, following_id: targetId });
+        await sb.from('csns_follows').delete().match({ follower_id: currentUser.id, following_id: targetId });
     } else {
-        await supabase.from('csns_follows').insert({ follower_id: currentUser.id, following_id: targetId });
+        await sb.from('csns_follows').insert({ follower_id: currentUser.id, following_id: targetId });
     }
     renderApp();
 }
 
-// ==========================================
-// UI RENDERING
-// ==========================================
+window.toggleComments = async function(postId) {
+    const section = document.getElementById(`comments-${postId}`);
+    if (section.classList.contains('hidden')) {
+        section.classList.remove('hidden');
+        section.innerHTML = '<p class="text-xs text-slate-500 p-2">Loading...</p>';
+        const comments = await fetchComments(postId);
+        section.innerHTML = comments.map(c => `
+            <div class="flex space-x-2 p-2 border-t border-slate-800">
+                <div class="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold">${c.csns_profiles?.username[0].toUpperCase()}</div>
+                <div>
+                    <span class="text-xs font-bold text-slate-300">@${c.csns_profiles?.username}</span>
+                    <p class="text-sm text-slate-400">${c.content}</p>
+                </div>
+            </div>
+        `).join('') || '<p class="text-xs text-slate-500 p-2">No comments yet.</p>';
+    } else {
+        section.classList.add('hidden');
+    }
+}
 
+window.submitComment = async function(postId) {
+    const input = document.getElementById(`comment-input-${postId}`);
+    const content = input.value;
+    if (!content.trim()) return;
+    
+    await sb.from('csns_comments').insert({
+        post_id: postId,
+        user_id: currentUser.id,
+        content
+    });
+    input.value = '';
+    toggleComments(postId);
+    setTimeout(() => toggleComments(postId), 100); // Refresh comments
+}
+
+// ==========================================
+// 5. UI RENDERING
+// ==========================================
 async function renderApp() {
     if (currentView.startsWith('profile_')) {
-        const profileId = currentView.split('_')[1];
-        await renderProfile(profileId);
+        await renderProfile(currentView.split('_')[1]);
     } else {
         await renderFeed();
     }
@@ -137,7 +176,7 @@ async function renderFeed() {
             <h1 class="text-2xl font-black text-cyan-400 tracking-tight">CodeSNS</h1>
             ${currentUser ? `
                 <div class="flex items-center gap-3">
-                    <span class="text-sm text-slate-400 font-mono">@${currentUser.username}</span>
+                    <button onclick="currentView='profile_${currentUser.id}'; renderApp()" class="text-sm text-slate-400 hover:text-cyan-400 font-mono">@${currentUser.username}</button>
                     <button onclick="logout()" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-md transition">Logout</button>
                 </div>
             ` : `
@@ -169,13 +208,12 @@ async function renderFeed() {
 }
 
 async function renderProfile(profileId) {
-    const { data: profile } = await supabase.from('csns_profiles').select('*').eq('id', profileId).single();
+    const { data: profile } = await sb.from('csns_profiles').select('*').eq('id', profileId).single();
     const posts = await fetchPosts(profileId);
     
-    // Check if current user is following
     let isFollowing = false;
     if (currentUser) {
-        const { data } = await supabase.from('csns_follows').select('*').match({ follower_id: currentUser.id, following_id: profileId });
+        const { data } = await sb.from('csns_follows').select('*').match({ follower_id: currentUser.id, following_id: profileId });
         isFollowing = data.length > 0;
     }
 
@@ -229,14 +267,14 @@ function renderPostCard(post) {
                     ${post.csns_post_repos && post.csns_post_repos.length > 0 ? `
                         <div class="mt-3 border border-slate-800 rounded-lg overflow-hidden bg-slate-900/70">
                             ${post.csns_post_repos.map(repo => `
-                                <div class="p-4">
-                                    <a href="${repo.repo_url}" target="_blank" class="flex items-center space-x-2 text-cyan-400 font-mono text-sm hover:underline">
+                                <a href="${repo.repo_url}" target="_blank" class="block p-4 hover:bg-slate-800/50 transition-colors">
+                                    <div class="flex items-center space-x-2 text-cyan-400 font-mono text-sm">
                                         <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
                                         <span class="font-semibold">${repo.owner}</span>
                                         <span class="text-slate-600">/</span>
                                         <span class="font-semibold text-slate-200">${repo.repo_name}</span>
-                                    </a>
-                                </div>
+                                    </div>
+                                </a>
                             `).join('')}
                         </div>
                     ` : ''}
@@ -246,6 +284,20 @@ function renderPostCard(post) {
                             <svg class="w-4 h-4" fill="${isLiked ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>
                             <span class="text-xs">${post.csns_likes.length}</span>
                         </button>
+                        <button onclick="toggleComments('${post.id}')" class="flex items-center space-x-1 hover:text-cyan-400 transition-colors">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                            <span class="text-xs">Reply</span>
+                        </button>
+                    </div>
+
+                    <!-- Comment Section -->
+                    <div id="comments-${post.id}" class="hidden mt-3 bg-slate-900/50 rounded-lg border border-slate-800">
+                        ${currentUser ? `
+                            <div class="p-2 border-b border-slate-800 flex gap-2">
+                                <input id="comment-input-${post.id}" type="text" placeholder="Add a comment..." class="flex-1 bg-transparent text-sm text-slate-200 placeholder-slate-500 focus:outline-none">
+                                <button onclick="submitComment('${post.id}')" class="text-xs bg-cyan-500 hover:bg-cyan-600 text-white px-3 py-1 rounded-md">Post</button>
+                            </div>
+                        ` : ''}
                     </div>
                 </div>
             </div>
