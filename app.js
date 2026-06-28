@@ -172,6 +172,11 @@ window.handleImageSelect = function(input) {
     }
 }
 
+window.togglePollComposer = function() {
+    const div = document.getElementById('poll-composer');
+    div.style.display = div.style.display === 'none' ? 'block' : 'none';
+}
+
 window.handlePost = async function(parentId = null, isRepost = false) {
     let content = '';
     let postType = 'post';
@@ -205,12 +210,31 @@ window.handlePost = async function(parentId = null, isRepost = false) {
                 }
             } catch(e) {}
         }
+
+        const pollComposer = document.getElementById('poll-composer');
+        if (pollComposer && pollComposer.style.display !== 'none') {
+            let pollOptions = [];
+            for (let i = 1; i <= 3; i++) {
+                const val = document.getElementById(`poll-opt-${i}`).value.trim();
+                if (val) pollOptions.push(val);
+            }
+            if (pollOptions.length > 1) {
+                await sb.from('csns_polls').insert({ post_id: newPost.id, options: pollOptions });
+            }
+        }
     }
+
     if (parentId) {
         const { data: parentPost } = await sb.from('csns_posts').select('user_id').eq('id', parentId).single();
         if (parentPost) createNotification(currentUser.id, parentPost.user_id, isRepost ? 'repost' : 'comment', parentId);
     }
     closeQuoteModal();
+    renderApp();
+}
+
+window.votePoll = async function(pollId, optionIndex) {
+    if (!currentUser) return alert('Please login to vote.');
+    await sb.from('csns_poll_votes').insert({ poll_id: pollId, user_id: currentUser.id, option_index: optionIndex });
     renderApp();
 }
 
@@ -247,7 +271,8 @@ window.showQuoteModal = function(postId, isRepost) { const modal = document.getE
 window.closeQuoteModal = function() { document.getElementById('quote-modal').style.display = 'none'; }
 window.submitQuote = function() { const modal = document.getElementById('quote-modal'); handlePost(modal.dataset.postId, modal.dataset.isRepost === 'true'); }
 
-window.toggleComments = async function(postId) {
+// FIX: Added ownerId parameter to fix infinite loading bug
+window.toggleComments = async function(postId, ownerId) {
     const section = document.getElementById(`comments-${postId}`);
     if (section.style.display === 'none' || !section.innerHTML) {
         section.style.display = 'block';
@@ -272,7 +297,7 @@ window.toggleComments = async function(postId) {
         };
 
         let html = renderComments();
-        if (currentUser) html += `<div class="comment-input-area"><input id="comment-input-${postId}" type="text" placeholder="Tweet your reply..."><button onclick="submitComment('${postId}', '${post.user_id}')" class="btn btn-primary btn-sm">Reply</button></div>`;
+        if (currentUser) html += `<div class="comment-input-area"><input id="comment-input-${postId}" type="text" placeholder="Tweet your reply..."><button onclick="submitComment('${postId}', '${ownerId}')" class="btn btn-primary btn-sm">Reply</button></div>`;
         section.innerHTML = html || '<div style="padding: 1rem; text-align: center; color: var(--text-muted);">No comments yet.</div>';
     } else { section.style.display = 'none'; }
 }
@@ -290,8 +315,8 @@ window.submitComment = async function(postId, ownerId) {
     await sb.from('csns_comments').insert({ post_id: postId, user_id: currentUser.id, content: input.value, parent_comment_id: replyToCommentId });
     createNotification(currentUser.id, ownerId, 'comment', postId);
     replyToCommentId = null;
-    toggleComments(postId);
-    setTimeout(() => toggleComments(postId), 200);
+    toggleComments(postId, ownerId);
+    setTimeout(() => toggleComments(postId, ownerId), 200);
 }
 
 window.updateDnsHost = function(domain) { if (domain && domain.trim() !== '') { document.getElementById('dns-info').style.display = 'block'; document.getElementById('dns-host').innerText = `_codesns.${domain}`; } else { document.getElementById('dns-info').style.display = 'none'; } }
@@ -450,7 +475,7 @@ function renderLayout(centerContent, activeNav = 'home') {
 }
 
 async function fetchFeedPosts() {
-    return await sb.from('csns_posts').select(`*, csns_profiles:user_id (*), csns_post_repos (*), csns_likes (user_id, reaction_type), csns_bookmarks (user_id), parent:parent_post_id (*, csns_profiles:user_id (*))`).order('created_at', { ascending: false });
+    return await sb.from('csns_posts').select(`*, csns_profiles:user_id (*), csns_post_repos (*), csns_likes (user_id, reaction_type), csns_bookmarks (user_id), parent:parent_post_id (*, csns_profiles:user_id (*)), csns_polls (*, csns_poll_votes (user_id, option_index))`).order('created_at', { ascending: false });
 }
 
 async function renderFeed() {
@@ -470,7 +495,13 @@ async function renderFeed() {
                     <input id="repo-url" type="text" placeholder="Attach GitHub/GitLab repo link (optional)">
                     <div class="upload-btn-wrapper">
                         <label class="upload-btn"><svg style="width: 20px; height: 20px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg><span>Add Image</span><input id="image-upload" type="file" accept="image/*" style="display: none;" onchange="handleImageSelect(this)"></label>
+                        <label class="upload-btn"><svg style="width: 20px; height: 20px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg><span>Add Poll</span><input type="checkbox" style="display: none;" onchange="togglePollComposer()"></label>
                         <img id="image-preview" class="image-preview" style="display: none;" />
+                    </div>
+                    <div id="poll-composer" style="display: none; margin-top: 0.5rem;">
+                        <input id="poll-opt-1" type="text" class="modal-input" placeholder="Option 1" style="margin-bottom: 0.5rem;">
+                        <input id="poll-opt-2" type="text" class="modal-input" placeholder="Option 2" style="margin-bottom: 0.5rem;">
+                        <input id="poll-opt-3" type="text" class="modal-input" placeholder="Option 3">
                     </div>
                     <div style="display: flex; justify-content: flex-end; margin-top: 1rem;"><button onclick="handlePost()" class="btn btn-primary">Post Code</button></div>
                 </div>
@@ -649,6 +680,34 @@ function renderPostCard(post) {
     let contentHtml = post.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/```([\s\S]*?)```/g, (match, p1) => `<div class="code-block-wrapper"><button class="copy-btn" onclick="copyCode(this)">Copy</button><pre class="code-block"><code class="hljs">${p1}</code></pre></div>`).replace(/\n/g, '<br>');
     let parentHtml = post.parent ? `<div class="quote-embed" onclick="event.stopPropagation(); currentView='profile_${post.parent.user_id}'; renderApp()"><span style="font-size: 0.8rem; color: var(--text-muted);">Quote from @${post.parent.csns_profiles?.username}</span><p style="margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);">${post.parent.content.substring(0, 140)}...</p></div>` : '';
 
+    let pollHtml = '';
+    if (post.csns_polls && post.csns_polls.length > 0) {
+        const poll = post.csns_polls[0];
+        const userVoteObj = currentUser ? poll.csns_poll_votes.find(v => v.user_id === currentUser.id) : null;
+        const totalVotes = poll.csns_poll_votes.length;
+        
+        pollHtml += '<div class="poll-container">';
+        poll.options.forEach((opt, index) => {
+            const voteCount = poll.csns_poll_votes.filter(v => v.option_index === index).length;
+            const percentage = totalVotes > 0 ? Math.round((voteCount / totalVotes) * 100) : 0;
+            pollHtml += `<div class="poll-option">`;
+            if (userVoteObj || !currentUser) {
+                pollHtml += `
+                    <div style="display: flex; justify-content: space-between; font-size: 0.9rem; margin-bottom: 0.25rem; color: var(--text-secondary);">
+                        <span>${opt} ${userVoteObj && userVoteObj.option_index === index ? '(Your vote)' : ''}</span>
+                        <span>${percentage}%</span>
+                    </div>
+                    <div class="poll-results-bar"><div class="poll-results-fill" style="width: ${percentage}%;"></div></div>
+                `;
+            } else {
+                pollHtml += `<button onclick="votePoll('${poll.id}', ${index})" class="poll-btn">${opt}</button>`;
+            }
+            pollHtml += `</div>`;
+        });
+        pollHtml += `<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem;">${totalVotes} votes</div>`;
+        pollHtml += '</div>';
+    }
+
     const reactions = [
         { type: 'love', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />' }, 
         { type: 'like', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />' }, 
@@ -677,9 +736,10 @@ function renderPostCard(post) {
                     <div class="post-content">${contentHtml}</div>
                     ${parentHtml}
                     ${post.image_url ? `<img src="${post.image_url}" class="post-image" alt="Post image">` : ''}
+                    ${pollHtml}
                     ${post.csns_post_repos && post.csns_post_repos.length > 0 ? post.csns_post_repos.map(repo => `<a href="${repo.repo_url}" target="_blank" class="repo-embed" data-owner="${repo.owner}" data-repo="${repo.repo_name}"><div class="repo-embed-content"><div class="repo-embed-header">${repo.platform === 'github' ? `<svg style="width: 20px; height: 20px;" fill="currentColor" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>` : `<svg style="width: 20px; height: 20px;" fill="currentColor" viewBox="0 0 24 24"><path d="M23.955 13.587l-1.347-4.135-2.664-8.197a.455.455 0 00-.867 0L16.413 9.45H7.587L4.923 1.255a.455.455 0 00-.867 0L1.392 9.452.045 13.587a.924.924 0 00.331 1.023L12 23.054l11.624-8.443a.92.92 0 00.331-1.024"/></svg>`} ${repo.owner} / ${repo.repo_name}</div><div class="repo-embed-desc font-mono">${repo.repo_url}</div><div class="repo-stats"><span class="repo-stat">Loading stats...</span></div></div></a>`).join('') : ''}
                     <div class="post-actions">
-                        <button onclick="toggleComments('${post.id}')" class="action-btn"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg></button>
+                        <button onclick="toggleComments('${post.id}', '${post.user_id}')" class="action-btn"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg></button>
                         <button onclick="showQuoteModal('${post.id}', false)" class="action-btn"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg></button>
                         <button onclick="showQuoteModal('${post.id}', true)" class="action-btn"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></button>
                         ${reactionHtml}
