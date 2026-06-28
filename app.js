@@ -68,9 +68,10 @@ window.logout = async function() {
     renderApp();
 }
 
-// FIX: Removed TOKEN_REFRESHED so modals don't close when returning to the tab
+// FIX: Only call checkAuth if we don't already have a user. Prevents modals from closing on tab switch.
 sb.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') checkAuth();
+    if (event === 'SIGNED_IN' && !currentUser) checkAuth();
+    else if (event === 'SIGNED_OUT') checkAuth();
 });
 
 // ==========================================
@@ -358,6 +359,7 @@ window.saveProfile = async function() {
     renderApp();
 }
 
+// FIX: Properly handle the invoke response without throwing console errors
 window.verifyDomain = async function() {
     const btn = document.getElementById('verify-btn');
     const statusEl = document.getElementById('dns-status');
@@ -372,7 +374,7 @@ window.verifyDomain = async function() {
             method: 'POST'
         });
         
-        if (error) throw new Error(error.context?.error || 'DNS record not found. Please ensure you added the TXT record correctly.');
+        if (error) throw new Error(error.message || 'Failed to verify domain.');
         
         if (data && data.success) {
             statusEl.className = 'dns-status success';
@@ -380,7 +382,7 @@ window.verifyDomain = async function() {
             currentUser.domain_verified = true;
             setTimeout(() => { closeEditProfile(); renderApp(); }, 1500);
         } else {
-            throw new Error(data?.error || 'Verification failed');
+            throw new Error(data?.error || 'Verification failed. Please check your DNS record.');
         }
     } catch (error) {
         statusEl.className = 'dns-status error';
