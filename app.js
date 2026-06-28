@@ -1,5 +1,5 @@
 const SUPABASE_URL = 'https://tvxugmumfvgnvjacwwfz.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2eHVnbXVtZnZnbnZqYWN3d2Z6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3NjQ1MzEsImV4cCI6MjA5NjM0MDUzMX0.76wR9dblt8W9u-OioqQH7NOethNq1BMfjTDl9xcpYYI';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2eHVnbXVtZnZnbnZqYWN3d2Z6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3NjQ1MzEsImV4cCI6MjA5NjM0MDUzMX0.76wR9dblt8W9u-OioqQH7NOethNq1BMfjTDl9xcpYYI'; 
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { detectSessionInUrl: true, persistSession: true, autoRefreshToken: true }
@@ -16,6 +16,8 @@ let searchTimeout = null;
 let verifyMethod = 'dns';
 let profileSort = 'newest';
 let replyToCommentId = null;
+let activeFeedTab = 'foryou';
+let activeTag = null;
 
 async function fetchDevTip() {
     try {
@@ -75,12 +77,18 @@ sb.auth.onAuthStateChange((event, session) => {
     else if (event === 'SIGNED_OUT') checkAuth();
 });
 
+// REALTIME: Listen for new posts
+sb.channel('public:csns_posts')
+  .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'csns_posts' }, payload => {
+      if (currentView === 'feed') renderApp();
+  })
+  .subscribe();
+
 async function createNotification(actorId, userId, type, postId = null) {
     if (actorId === userId) return;
     await sb.from('csns_notifications').insert({ actor_id: actorId, user_id: userId, type, post_id: postId });
 }
 
-// FIX: Removed the date filter to prevent 403 errors from future dates
 async function fetchTrendingRepos() {
     try {
         const res = await fetch(`https://api.github.com/search/repositories?q=stars:%3E10000&sort=stars&order=desc&per_page=3`);
@@ -89,10 +97,10 @@ async function fetchTrendingRepos() {
         if (trendEl && data.items) {
             trendEl.innerHTML = data.items.map(r => `
                 <div class="trend-item">
-                    <div class="font-mono" style="color: var(--accent-primary); font-size: 0.9rem;">${r.full_name}</div>
-                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem; display: flex; align-items: center; gap: 0.5rem;">
-                        <svg style="width: 12px; height: 12px;" fill="currentColor" viewBox="0 0 24 24"><path d="M12 .587l3.668 7.568 8.332 1.151-6.064 5.828 1.48 8.279L12 18.896l-7.416 3.917 1.48-8.279L0 8.306l8.332-1.151z"/></svg>
-                        ${r.stargazers_count} - ${r.description ? r.description.substring(0, 30) + '...' : 'No desc'}
+                    <div class="font-mono" style="color: var(--accent-primary); font-size: 0.8rem;">${r.full_name}</div>
+                    <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem; display: flex; align-items: center; gap: 0.25rem;">
+                        <svg style="width: 10px; height: 10px;" fill="currentColor" viewBox="0 0 24 24"><path d="M12 .587l3.668 7.568 8.332 1.151-6.064 5.828 1.48 8.279L12 18.896l-7.416 3.917 1.48-8.279L0 8.306l8.332-1.151z"/></svg>
+                        ${r.stargazers_count}
                     </div>
                 </div>
             `).join('');
@@ -119,9 +127,9 @@ async function initRepoStats() {
             if (!res.ok) continue;
             const data = await res.json();
             statsEl.innerHTML = `
-                <span class="repo-stat"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg> ${data.stargazers_count}</span>
-                <span class="repo-stat"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" /></svg> ${data.forks_count}</span>
-                <span class="repo-stat" style="color: ${data.language ? '#a855f7' : '#fff'};">${data.language || 'Code'}</span>
+                <span class="repo-stat"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:12px;height:12px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg> ${data.stargazers_count}</span>
+                <span class="repo-stat"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:12px;height:12px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" /></svg> ${data.forks_count}</span>
+                <span class="repo-stat" style="color: ${data.language ? '#a855f7' : '#fff'}; font-size: 0.7rem;">${data.language || 'Code'}</span>
             `;
         } catch (e) {}
     }
@@ -242,7 +250,6 @@ window.deletePost = async function(postId) {
     renderApp();
 }
 
-// Standard Like (Thumbs Up)
 window.handleLike = async function(postId, ownerId) {
     if (!currentUser) return alert('Please login to like.');
     const { data: existing } = await sb.from('csns_likes').select('id').match({ post_id: postId, user_id: currentUser.id }).single();
@@ -255,17 +262,14 @@ window.handleLike = async function(postId, ownerId) {
     renderApp();
 }
 
-// Emoji Reactions (Heart, Fire, etc.)
 window.handleReaction = async function(postId, type, ownerId) {
     if (!currentUser) return alert('Please login to react.');
     const { data: existing } = await sb.from('csns_reactions').select('id, type').match({ post_id: postId, user_id: currentUser.id }).single();
     
     if (existing) {
         if (existing.type === type) {
-            // Toggle off if clicking the same emoji
             await sb.from('csns_reactions').delete().eq('id', existing.id);
         } else {
-            // Update to new emoji (can't have 2 emojis at once)
             await sb.from('csns_reactions').update({ type }).eq('id', existing.id);
             if (type === 'heart') createNotification(currentUser.id, ownerId, 'like', postId);
         }
@@ -290,7 +294,27 @@ window.handleFollow = async function(targetId, isFollowing) {
     renderApp();
 }
 
-window.copyCode = function(btn) { navigator.clipboard.writeText(btn.previousElementSibling.innerText); btn.innerText = 'Copied!'; setTimeout(() => btn.innerText = 'Copy', 2000); }
+window.copyCode = function(btn) { navigator.clipboard.writeText(btn.parentElement.nextElementSibling.innerText); btn.innerText = 'Copied!'; setTimeout(() => btn.innerText = 'Copy', 2000); }
+
+// CODE SANDBOX
+window.runCode = function(btn) {
+    const wrapper = btn.closest('.code-block-wrapper');
+    const code = wrapper.querySelector('code').innerText;
+    const outputDiv = wrapper.querySelector('.code-output');
+    try {
+        let logs = [];
+        const oldLog = console.log;
+        console.log = (...args) => logs.push(args.join(' '));
+        const result = eval(code);
+        console.log = oldLog;
+        outputDiv.innerText = logs.join('\n') + (result !== undefined ? '\n' + result : '');
+        if (!outputDiv.innerText) outputDiv.innerText = 'Code executed successfully (no output).';
+    } catch (e) {
+        outputDiv.innerText = 'Error: ' + e.message;
+    }
+    outputDiv.style.display = 'block';
+}
+
 window.showQuoteModal = function(postId, isRepost) { const modal = document.getElementById('quote-modal'); modal.style.display = 'flex'; modal.dataset.postId = postId; modal.dataset.isRepost = isRepost; document.getElementById('quote-content').style.display = isRepost ? 'none' : 'block'; }
 window.closeQuoteModal = function() { document.getElementById('quote-modal').style.display = 'none'; }
 window.submitQuote = function() { const modal = document.getElementById('quote-modal'); handlePost(modal.dataset.postId, modal.dataset.isRepost === 'true'); }
@@ -304,14 +328,14 @@ window.toggleComments = async function(postId, ownerId) {
         
         const renderComments = (parentId = null, depth = 0) => {
             return comments.filter(c => (c.parent_comment_id || null) === parentId).map(c => `
-                <div class="comment-item" style="margin-left: ${depth * 2}rem;">
-                    <img src="${c.csns_profiles?.avatar_url || `https://ui-avatars.com/api/?name=${c.csns_profiles?.username}`}" class="post-avatar" style="width: 32px; height: 32px;">
+                <div class="comment-item" style="margin-left: ${depth * 1.5}rem;">
+                    <img src="${c.csns_profiles?.avatar_url || `https://ui-avatars.com/api/?name=${c.csns_profiles?.username}`}" class="post-avatar" style="width: 28px; height: 28px;">
                     <div style="flex: 1;">
                         <div style="display: flex; gap: 0.5rem; align-items: center;">
-                            <span style="font-weight: 700; font-size: 0.9rem;">${c.csns_profiles?.full_name || c.csns_profiles?.username}</span>
-                            <span style="font-size: 0.8rem; color: var(--text-muted);" class="font-mono">@${c.csns_profiles?.username}</span>
+                            <span style="font-weight: 700; font-size: 0.8rem;">${c.csns_profiles?.full_name || c.csns_profiles?.username}</span>
+                            <span style="font-size: 0.7rem; color: var(--text-muted);" class="font-mono">@${c.csns_profiles?.username}</span>
                         </div>
-                        <p style="color: var(--text-secondary); margin-top: 0.25rem; font-size: 0.9rem;">${c.content}</p>
+                        <p style="color: var(--text-secondary); margin-top: 0.15rem; font-size: 0.8rem;">${c.content}</p>
                         ${currentUser ? `<button class="reply-btn" onclick="setReplyTo('${c.id}', '${postId}')">Reply</button>` : ''}
                     </div>
                 </div>
@@ -340,6 +364,13 @@ window.submitComment = async function(postId, ownerId) {
     replyToCommentId = null;
     toggleComments(postId, ownerId);
     setTimeout(() => toggleComments(postId, ownerId), 200);
+}
+
+// HASHTAGS
+window.searchTag = function(tag) {
+    activeTag = tag;
+    currentView = 'feed';
+    renderApp();
 }
 
 window.updateDnsHost = function(domain) { if (domain && domain.trim() !== '') { document.getElementById('dns-info').style.display = 'block'; document.getElementById('dns-host').innerText = `_codesns.${domain}`; } else { document.getElementById('dns-info').style.display = 'none'; } }
@@ -411,14 +442,29 @@ window.handleSearchInput = function(e) {
         const cleanQuery = query.replace('@', '');
         const { data } = await sb.from('csns_profiles').select('*').ilike('username', `%${cleanQuery}%`).limit(5);
         if (!data || data.length === 0) resultsDiv.innerHTML = '<div class="search-item">No users found.</div>';
-        else resultsDiv.innerHTML = data.map(u => `<div class="search-item" onclick="currentView='profile_${u.id}'; renderApp(); document.getElementById('search-results').style.display='none';"><img src="${u.avatar_url || `https://ui-avatars.com/api/?name=${u.username}`}" class="post-avatar" style="width: 32px; height: 32px;"><div><div style="font-weight: 700; font-size: 0.9rem;">${u.full_name || u.username}</div><div style="font-size: 0.8rem; color: var(--text-muted);" class="font-mono">@${u.username}</div></div></div>`).join('');
+        else resultsDiv.innerHTML = data.map(u => `<div class="search-item" onclick="currentView='profile_${u.id}'; renderApp(); document.getElementById('search-results').style.display='none';"><img src="${u.avatar_url || `https://ui-avatars.com/api/?name=${u.username}`}" class="post-avatar" style="width: 32px; height: 32px;"><div><div style="font-weight: 700; font-size: 0.8rem;">${u.full_name || u.username}</div><div style="font-size: 0.7rem; color: var(--text-muted);" class="font-mono">@${u.username}</div></div></div>`).join('');
     }, 300);
 }
 
+window.setFeedTab = function(tab) {
+    activeFeedTab = tab;
+    activeTag = null;
+    renderApp();
+}
+
+window.toggleTheme = function() {
+    document.body.classList.toggle('light-theme');
+    localStorage.setItem('theme', document.body.classList.contains('light-theme') ? 'light' : 'dark');
+}
+
 async function renderApp() {
+    if (localStorage.getItem('theme') === 'light' && !document.body.classList.contains('light-theme')) {
+        document.body.classList.add('light-theme');
+    }
     document.documentElement.style.setProperty('--accent-primary', currentUser?.accent_color || '#00d4ff');
     if (currentView.startsWith('profile_')) await renderProfile(currentView.split('_')[1]);
     else if (currentView === 'news') await renderNews();
+    else if (currentView === 'jobs') await renderJobs();
     else if (currentView === 'following') await renderFollowing();
     else if (currentView === 'messages') await renderMessages();
     else if (currentView === 'saved') await renderSaved();
@@ -433,7 +479,7 @@ function renderLayout(centerContent, activeNav = 'home') {
                 <div class="modal-content" style="max-height: 90vh; overflow-y: auto;">
                     <div class="modal-header"><h2 class="modal-title">Edit Profile</h2><button class="modal-close" onclick="closeEditProfile()">&times;</button></div>
                     <div class="modal-input-group"><label class="modal-label">Full Name</label><input id="edit-fullname" type="text" class="modal-input"></div>
-                    <div class="modal-input-group"><label class="modal-label">Bio</label><textarea id="edit-bio" class="banner-input"></textarea></div>
+                    <div class="modal-input-group"><label class="modal-label">Bio</label><textarea id="edit-bio" class="modal-input modal-textarea"></textarea></div>
                     <div class="modal-input-group"><label class="modal-label">Accent Color</label><input id="edit-accent" type="color" class="modal-input" style="height: 40px; padding: 4px;"></div>
                     <div class="modal-input-group"><label class="modal-label">Avatar Image URL</label><input id="edit-avatar-url" type="text" class="modal-input" placeholder="https://..."></div>
                     <div class="modal-input-group"><label class="modal-label">Banner Image URL</label><input id="edit-banner-url" type="text" class="modal-input" placeholder="https://..."></div>
@@ -442,7 +488,7 @@ function renderLayout(centerContent, activeNav = 'home') {
                     <div class="modal-input-group"><label class="modal-label">Custom Domain (Premium)</label><input id="edit-domain" type="text" class="modal-input" placeholder="yourdomain.com" oninput="updateDnsHost(this.value)">
                     <div id="dns-info" style="display: none; margin-top: 1rem; border-top: 1px solid var(--border-light); padding-top: 1rem;">
                         <h3 style="font-size: 0.9rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--text-primary);">Domain Verification</h3>
-                        <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;"><button class="verify-method-btn active" onclick="setVerifyMethod('dns')">DNS TXT</button><button class="verify-method-btn" onclick="setVerifyMethod('html')">HTML File</button></div>
+                        <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;"><button class="btn btn-ghost btn-sm verify-method-btn active" onclick="setVerifyMethod('dns')">DNS TXT</button><button class="btn btn-ghost btn-sm verify-method-btn" onclick="setVerifyMethod('html')">HTML File</button></div>
                         <div id="dns-instructions"><p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">Add a <strong>TXT record</strong> to your domain's DNS settings.</p><div style="display: grid; grid-template-columns: 100px 1fr; gap: 0.5rem; font-size: 0.8rem; margin-bottom: 1rem; align-items: center;"><span style="color: var(--text-muted);">Record Type:</span><span class="dns-info-box" style="margin:0; padding: 4px 8px;">TXT</span><span style="color: var(--text-muted);">Name/Host:</span><span id="dns-host" class="dns-info-box" style="margin:0; padding: 4px 8px;">_codesns.yourdomain.com</span><span style="color: var(--text-muted);">Value:</span><div style="display:flex; align-items:center; gap:0.5rem;"><span id="dns-txt" class="dns-info-box" style="margin:0; padding: 4px 8px; flex:1;">codesns-verify=...</span><button onclick="copyDnsValue('dns')" class="btn btn-ghost btn-sm" style="padding: 4px 8px;">Copy</button></div></div></div>
                         <div id="html-instructions" style="display: none;"><p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">Create an HTML file and upload it to your website's root directory.</p><div style="display: grid; grid-template-columns: 100px 1fr; gap: 0.5rem; font-size: 0.8rem; margin-bottom: 1rem; align-items: center;"><span style="color: var(--text-muted);">File Name:</span><span class="dns-info-box" style="margin:0; padding: 4px 8px;">codesns-verify.html</span><span style="color: var(--text-muted);">Content:</span><div style="display:flex; align-items:center; gap:0.5rem;"><span id="html-txt" class="dns-info-box" style="margin:0; padding: 4px 8px; flex:1;">codesns-verify=...</span><button onclick="copyDnsValue('html')" class="btn btn-ghost btn-sm" style="padding: 4px 8px;">Copy</button></div></div></div>
                         <button id="verify-btn" class="btn btn-primary btn-sm" style="width: 100%;" onclick="verifyDomain()">Verify Domain</button><div id="dns-status" class="dns-status" style="display: none; text-align: center;"></div>
@@ -455,43 +501,49 @@ function renderLayout(centerContent, activeNav = 'home') {
             <div id="quote-modal" class="modal-overlay" style="display: none;"><div class="modal-content"><div class="modal-header"><h2 class="modal-title">Quote Post</h2><button class="modal-close" onclick="closeQuoteModal()">&times;</button></div><textarea id="quote-content" class="modal-input modal-textarea" placeholder="Add a comment..." rows="4"></textarea><div style="display: flex; justify-content: flex-end; margin-top: 1rem;"><button class="btn btn-primary btn-sm" onclick="submitQuote()">Post</button></div></div></div>
 
             <aside class="left-sidebar">
-                <div class="logo" style="display: flex; align-items: center; gap: 0.5rem;">
-                    <svg style="width: 28px; height: 28px; color: var(--accent-primary);" fill="currentColor" viewBox="0 0 24 24"><path d="M13 2L3 14h7v8l10-12h-7V2z"/></svg>
+                <div class="logo">
+                    <svg style="width: 24px; height: 24px; color: var(--accent-primary);" fill="currentColor" viewBox="0 0 24 24"><path d="M13 2L3 14h7v8l10-12h-7V2z"/></svg>
                     CodeSNS
                 </div>
                 <nav style="flex: 1;">
                     <a class="nav-item ${activeNav === 'home' ? 'active' : ''}" onclick="currentView='feed'; renderApp()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg><span>Home</span></a>
                     <a class="nav-item ${activeNav === 'following' ? 'active' : ''}" onclick="currentView='following'; renderApp()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg><span>Following</span></a>
-                    <a class="nav-item ${activeNav === 'saved' ? 'active' : ''}" onclick="currentView='saved'; renderApp()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg><span>Saved</span></a>
                     <a class="nav-item ${activeNav === 'news' ? 'active' : ''}" onclick="currentView='news'; renderApp()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" /></svg><span>Dev News</span></a>
+                    <a class="nav-item ${activeNav === 'jobs' ? 'active' : ''}" onclick="currentView='jobs'; renderApp()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg><span>Jobs</span></a>
                     <a class="nav-item ${activeNav === 'messages' ? 'active' : ''}" onclick="currentView='messages'; renderApp()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg><span>Messages</span></a>
+                    <a class="nav-item ${activeNav === 'saved' ? 'active' : ''}" onclick="currentView='saved'; renderApp()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg><span>Saved</span></a>
                     ${currentUser ? `
                         <a class="nav-item ${activeNav === 'profile' ? 'active' : ''}" onclick="currentView='profile_${currentUser.id}'; renderApp()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg><span>Profile</span></a>
-                        <a class="nav-item" onclick="showEditProfile()"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg><span>Edit Profile</span></a>
                     ` : ''}
                 </nav>
+                
+                <a class="nav-item theme-toggle" onclick="toggleTheme()">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
+                    <span>Theme</span>
+                </a>
+
                 ${currentUser ? `
-                    <div style="position: relative; margin-bottom: 1rem;">
+                    <div style="position: relative; margin-bottom: 0.5rem;">
                         <div class="user-card" onclick="toggleNotifDropdown(event)">
-                            <img src="${avatarUrl}" class="post-avatar" style="width: 40px; height: 40px;">
-                            <div style="overflow: hidden;"><div style="font-weight: 700; font-size: 0.9rem;">${currentUser?.full_name}</div><div style="font-size: 0.8rem; color: var(--text-muted);" class="font-mono">Notifications</div></div>
-                            <svg style="width: 20px; height: 20px; color: var(--accent-primary);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                            <img src="${avatarUrl}" class="post-avatar" style="width: 32px; height: 32px;">
+                            <div style="overflow: hidden;"><div style="font-weight: 700; font-size: 0.8rem;">${currentUser?.full_name}</div><div style="font-size: 0.7rem; color: var(--text-muted);" class="font-mono">Notifications</div></div>
+                            <svg style="width: 16px; height: 16px; color: var(--accent-primary);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
                         </div>
                         <div id="notif-dropdown" class="notif-dropdown"></div>
                     </div>
-                    <div class="nav-item logout-btn" onclick="logout()" style="margin-top: 0;">
-                        <div style="width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;"><svg style="width: 24px; height: 24px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg></div>
+                    <a class="nav-item logout-btn" onclick="logout()">
+                        <svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
                         <span>Logout</span>
-                    </div>
-                ` : `<div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: auto; padding: 0 0.5rem;"><button onclick="loginWithGithub()" class="btn btn-ghost btn-sm" style="width: 100%; justify-content: center;">GitHub</button><button onclick="loginWithGitlab()" class="btn btn-ghost btn-sm" style="width: 100%; justify-content: center;">GitLab</button></div>`}
+                    </a>
+                ` : `<div style="display: flex; flex-direction: column; gap: 0.25rem; margin-top: auto; padding: 0 0.25rem;"><button onclick="loginWithGithub()" class="btn btn-ghost btn-sm" style="width: 100%; justify-content: center;">GitHub</button><button onclick="loginWithGitlab()" class="btn btn-ghost btn-sm" style="width: 100%; justify-content: center;">GitLab</button></div>`}
             </aside>
 
             <main class="center-feed">${centerContent}</main>
 
             <aside class="right-sidebar">
-                <div style="position: relative;"><input type="text" class="search-box" placeholder="Search @users..." oninput="handleSearchInput(event)" onclick="event.stopPropagation()"><div id="search-results" class="search-results" style="display: none;"></div></div>
-                <div class="widget"><h3 class="widget-title" style="display:flex; align-items:center; gap:0.5rem;"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.24 17 6.343 18.657 8 18 12 18 12s.5 1 1.5 1.5c0 0-1 2-2 3.157z" /></svg> Trending Repos</h3><div id="trending-repos"><div class="trend-item">Loading GitHub repos...</div></div></div>
-                <div class="widget"><h3 class="widget-title" style="display:flex; align-items:center; gap:0.5rem;"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg> AI Dev Tip</h3><p id="dev-tip-text" style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5;">${devTip}</p></div>
+                <div style="position: relative;"><input type="text" class="search-box" placeholder="Search @users..." oninput="handleSearchInput(event)" onclick="event.stopPropagation()"><div id="search-results" class="search-results" style="display: none; position: absolute; top: 40px; left: 0; right: 0; background: var(--bg-surface); border: 1px solid var(--border-medium); border-radius: var(--radius-md); max-height: 300px; overflow-y: auto; z-index: 50;"></div></div>
+                <div class="widget"><h3 class="widget-title"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.24 17 6.343 18.657 8 18 12 18 12s.5 1 1.5 1.5c0 0-1 2-2 3.157z" /></svg> Trending Repos</h3><div id="trending-repos"><div class="trend-item">Loading...</div></div></div>
+                <div class="widget"><h3 class="widget-title"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg> AI Dev Tip</h3><p id="dev-tip-text" style="font-size: 0.8rem; color: var(--text-secondary); line-height: 1.4;">${devTip}</p></div>
             </aside>
         </div>
     `;
@@ -503,37 +555,75 @@ async function fetchFeedPosts() {
 
 async function renderFeed() {
     const { data: posts } = await fetchFeedPosts();
+    let filteredPosts = posts;
+    
+    if (activeTag) {
+        filteredPosts = posts.filter(p => p.content.toLowerCase().includes(`#${activeTag.toLowerCase()}`));
+    } else if (activeFeedTab === 'trending') {
+        filteredPosts = posts.sort((a, b) => (b.csns_likes.length + b.csns_reactions.length) - (a.csns_likes.length + a.csns_reactions.length));
+    }
+
     const centerContent = `
         <header class="page-header"><h1 class="page-title">Home</h1></header>
+        <div class="feed-tabs">
+            <div class="feed-tab ${activeFeedTab === 'foryou' && !activeTag ? 'active' : ''}" onclick="setFeedTab('foryou')">For You</div>
+            <div class="feed-tab ${activeFeedTab === 'trending' && !activeTag ? 'active' : ''}" onclick="setFeedTab('trending')">Trending</div>
+            ${activeTag ? `<div class="feed-tab active">#${activeTag}</div>` : ''}
+        </div>
         ${currentUser ? `
             <div class="composer fade-in">
                 <img src="${currentUser.avatar_url || `https://ui-avatars.com/api/?name=${currentUser.username}`}" class="post-avatar">
                 <div style="flex: 1;">
                     <div class="composer-types">
                         <button class="type-btn active" data-type="post" onclick="setPostType('post')">Post</button>
-                        <button class="type-btn" data-type="review" onclick="setPostType('review')">Code Review</button>
+                        <button class="type-btn" data-type="review" onclick="setPostType('review')">Review</button>
                         <button class="type-btn" data-type="challenge" onclick="setPostType('challenge')">Challenge</button>
                     </div>
-                    <textarea id="post-content" placeholder="What did you code today?" rows="3"></textarea>
+                    <textarea id="post-content" placeholder="What did you code today? Use #tags" rows="2"></textarea>
                     <input id="repo-url" type="text" placeholder="Attach GitHub/GitLab repo link (optional)">
-                    <div class="upload-btn-wrapper">
-                        <label class="upload-btn"><svg style="width: 20px; height: 20px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg><span>Add Image</span><input id="image-upload" type="file" accept="image/*" style="display: none;" onchange="handleImageSelect(this)"></label>
-                        <label class="upload-btn"><svg style="width: 20px; height: 20px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg><span>Add Poll</span><input type="checkbox" style="display: none;" onchange="togglePollComposer()"></label>
-                        <img id="image-preview" class="image-preview" style="display: none;" />
+                    <div class="upload-btn-wrapper" style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                        <label class="btn btn-ghost btn-sm"><svg style="width: 14px; height: 14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg><span>Image</span><input id="image-upload" type="file" accept="image/*" style="display: none;" onchange="handleImageSelect(this)"></label>
+                        <label class="btn btn-ghost btn-sm"><svg style="width: 14px; height: 14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg><span>Poll</span><input type="checkbox" style="display: none;" onchange="togglePollComposer()"></label>
+                        <img id="image-preview" class="image-preview" style="display: none; max-height: 60px; border-radius: 4px;" />
                     </div>
                     <div id="poll-composer" style="display: none; margin-top: 0.5rem;">
-                        <input id="poll-opt-1" type="text" class="modal-input" placeholder="Option 1" style="margin-bottom: 0.5rem;">
-                        <input id="poll-opt-2" type="text" class="modal-input" placeholder="Option 2" style="margin-bottom: 0.5rem;">
-                        <input id="poll-opt-3" type="text" class="modal-input" placeholder="Option 3">
+                        <input id="poll-opt-1" type="text" class="modal-input" placeholder="Option 1" style="margin-bottom: 0.25rem; font-size: 0.8rem;">
+                        <input id="poll-opt-2" type="text" class="modal-input" placeholder="Option 2" style="margin-bottom: 0.25rem; font-size: 0.8rem;">
+                        <input id="poll-opt-3" type="text" class="modal-input" placeholder="Option 3" style="font-size: 0.8rem;">
                     </div>
-                    <div style="display: flex; justify-content: flex-end; margin-top: 1rem;"><button onclick="handlePost()" class="btn btn-primary">Post Code</button></div>
+                    <div style="display: flex; justify-content: flex-end; margin-top: 0.5rem;"><button onclick="handlePost()" class="btn btn-primary btn-sm">Post</button></div>
                 </div>
             </div>
-        ` : `<div style="padding: 3rem 2rem; text-align: center; border-bottom: 1px solid var(--border-light);"><h2 style="font-size: 1.5rem; margin-bottom: 0.5rem;">Welcome to CodeSNS</h2><p style="color: var(--text-muted); margin-bottom: 1.5rem;">Sign in to join the conversation.</p><div style="display: flex; gap: 0.75rem; justify-content: center;"><button onclick="loginWithGithub()" class="btn btn-ghost">GitHub</button><button onclick="loginWithGitlab()" class="btn btn-ghost">GitLab</button></div></div>`}
-        <div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No posts yet.</div>'}</div>
+        ` : `<div style="padding: 2rem 1rem; text-align: center; border-bottom: 1px solid var(--border-light);"><h2 style="font-size: 1.2rem; margin-bottom: 0.5rem;">Welcome to CodeSNS</h2><p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.8rem;">Sign in to join the conversation.</p><div style="display: flex; gap: 0.5rem; justify-content: center;"><button onclick="loginWithGithub()" class="btn btn-ghost btn-sm">GitHub</button><button onclick="loginWithGitlab()" class="btn btn-ghost btn-sm">GitLab</button></div></div>`}
+        <div id="feed">${filteredPosts.map(post => renderPostCard(post)).join('') || '<div style="padding: 2rem; text-align: center; color: var(--text-muted);">No posts found.</div>'}</div>
     `;
     app.innerHTML = renderLayout(centerContent, 'home');
     fetchTrendingRepos(); applySyntaxHighlighting(); initRepoStats();
+}
+
+async function renderJobs() {
+    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Developer Jobs</h1></header><div id="jobs-feed" style="padding: 1rem; text-align: center; color: var(--text-muted);">Fetching remote jobs...</div>`, 'jobs');
+    fetchTrendingRepos();
+    try {
+        const res = await fetch('https://www.arbeitnow.com/api/job-board-api');
+        const data = await res.json();
+        const jobs = data.data.slice(0, 20);
+        document.getElementById('jobs-feed').innerHTML = jobs.map(job => `
+            <a href="${job.url}" target="_blank" class="job-item">
+                <div class="job-title">${job.title}</div>
+                <div class="job-meta">
+                    <span>🏢 ${job.company_name}</span>
+                    <span>📍 ${job.location}</span>
+                    ${job.remote ? '<span>🌍 Remote</span>' : ''}
+                </div>
+                <div class="job-meta">
+                    ${(job.tags || []).slice(0, 5).map(t => `<span class="job-tag">${t}</span>`).join('')}
+                </div>
+            </a>
+        `).join('');
+    } catch (e) {
+        document.getElementById('jobs-feed').innerHTML = '<div style="padding: 2rem; text-align: center;">Failed to load jobs.</div>';
+    }
 }
 
 async function renderSaved() {
@@ -542,7 +632,7 @@ async function renderSaved() {
     const postIds = bookmarks.map(b => b.post_id);
     let posts = [];
     if (postIds.length > 0) { const { data } = await fetchFeedPosts(); posts = data.filter(p => postIds.includes(p.id)); }
-    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Saved Posts</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No saved posts yet.</div>'}</div>`, 'saved');
+    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Saved Posts</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 2rem; text-align: center; color: var(--text-muted);">No saved posts yet.</div>'}</div>`, 'saved');
     fetchTrendingRepos(); applySyntaxHighlighting(); initRepoStats();
 }
 
@@ -552,7 +642,7 @@ async function renderFollowing() {
     const followingIds = follows.map(f => f.following_id);
     let posts = [];
     if (followingIds.length > 0) { const res = await fetchFeedPosts(); posts = res.data.filter(p => followingIds.includes(p.user_id)); }
-    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Following</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">Feed is empty.</div>'}</div>`, 'following');
+    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Following</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 2rem; text-align: center; color: var(--text-muted);">Feed is empty.</div>'}</div>`, 'following');
     fetchTrendingRepos(); applySyntaxHighlighting(); initRepoStats();
 }
 
@@ -577,7 +667,7 @@ async function renderMessages() {
         const otherProfile = conversationList.find(c => c.user.id === activeChatUser)?.user || (await sb.from('csns_profiles').select('*').eq('id', activeChatUser).single()).data;
         chatHtml = `<div class="chat-window"><div class="chat-header"><img src="${otherProfile?.avatar_url || `https://ui-avatars.com/api/?name=${otherProfile?.username}`}" class="post-avatar" style="width: 32px; height: 32px;"><span>${otherProfile?.full_name || otherProfile?.username}</span></div><div class="chat-messages">${chatMessages.map(msg => `<div class="message-bubble ${msg.sender_id === currentUser.id ? 'message-sent' : 'message-received'}">${msg.content}</div>`).join('')}</div><div class="chat-input-area"><input id="dm-input" class="chat-input" placeholder="Type a message..." onkeypress="if(event.key==='Enter') sendDm()"><button onclick="sendDm()" class="btn btn-primary btn-sm">Send</button></div></div>`;
     }
-    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Messages</h1></header><div class="chat-layout"><div class="conversation-list">${conversationList.length > 0 ? conversationList.map(c => `<div class="conversation-item ${activeChatUser === c.user.id ? 'active' : ''}" onclick="selectConversation('${c.user.id}')"><img src="${c.user.avatar_url || `https://ui-avatars.com/api/?name=${c.user.username}`}" class="post-avatar" style="width: 40px; height: 40px;"><div style="overflow: hidden;"><div style="font-weight: 700; font-size: 0.9rem;">${c.user.full_name || c.user.username}</div><div style="font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${c.lastMessage.content}</div></div></div>`).join('') : '<div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">No conversations.</div>'}</div>${chatHtml}</div>`, 'messages');
+    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Messages</h1></header><div class="chat-layout"><div class="conversation-list">${conversationList.length > 0 ? conversationList.map(c => `<div class="conversation-item ${activeChatUser === c.user.id ? 'active' : ''}" onclick="selectConversation('${c.user.id}')"><img src="${c.user.avatar_url || `https://ui-avatars.com/api/?name=${c.user.username}`}" class="post-avatar" style="width: 32px; height: 32px;"><div style="overflow: hidden;"><div style="font-weight: 700; font-size: 0.8rem;">${c.user.full_name || c.user.username}</div><div style="font-size: 0.7rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${c.lastMessage.content}</div></div></div>`).join('') : '<div style="padding: 1rem; text-align: center; color: var(--text-muted);">No conversations.</div>'}</div>${chatHtml}</div>`, 'messages');
     fetchTrendingRepos();
 }
 
@@ -605,8 +695,8 @@ async function renderProfile(profileId) {
     if (profile.linkedin_url) achievements.push({ name: 'LinkedIn', icon: 'linkedin', class: 'social' });
 
     let metaItems = [];
-    if (profile.github_url) metaItems.push(`<a href="${profile.github_url}" target="_blank" class="profile-meta-item"><svg fill="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg> GitHub</a>`);
-    if (profile.gitlab_url) metaItems.push(`<a href="${profile.gitlab_url}" target="_blank" class="profile-meta-item"><svg fill="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;"><path d="M23.955 13.587l-1.347-4.135-2.664-8.197a.455.455 0 00-.867 0L16.413 9.45H7.587L4.923 1.255a.455.455 0 00-.867 0L1.392 9.452.045 13.587a.924.924 0 00.331 1.023L12 23.054l11.624-8.443a.92.92 0 00.331-1.024"/></svg> GitLab</a>`);
+    if (profile.github_url) metaItems.push(`<a href="${profile.github_url}" target="_blank" class="profile-meta-item"><svg fill="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg> GitHub</a>`);
+    if (profile.gitlab_url) metaItems.push(`<a href="${profile.gitlab_url}" target="_blank" class="profile-meta-item"><svg fill="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;"><path d="M23.955 13.587l-1.347-4.135-2.664-8.197a.455.455 0 00-.867 0L16.413 9.45H7.587L4.923 1.255a.455.455 0 00-.867 0L1.392 9.452.045 13.587a.924.924 0 00.331 1.023L12 23.054l11.624-8.443a.92.92 0 00.331-1.024"/></svg> GitLab</a>`);
 
     if (profile.github_url) {
         const ghUsername = profile.github_url.split('github.com/')[1];
@@ -626,11 +716,11 @@ async function renderProfile(profileId) {
                 
                 ghStatsHtml = `<div class="profile-stats-row"><div class="profile-stat">${ghData.public_repos || 0}<span> Repos</span></div><div class="profile-stat">${totalStars}<span> Stars</span></div><div class="profile-stat">${ghData.followers || 0}<span> Followers</span></div></div>`;
 
-                if (ghData.company) metaItems.push(`<div class="profile-meta-item"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg> ${ghData.company}</div>`);
-                if (ghData.location) metaItems.push(`<div class="profile-meta-item"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg> ${ghData.location}</div>`);
-                if (ghData.blog) metaItems.push(`<a href="${ghData.blog.startsWith('http') ? ghData.blog : 'https://' + ghData.blog}" target="_blank" class="profile-meta-item"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18" /></svg> Website</a>`);
+                if (ghData.company) metaItems.push(`<div class="profile-meta-item"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg> ${ghData.company}</div>`);
+                if (ghData.location) metaItems.push(`<div class="profile-meta-item"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg> ${ghData.location}</div>`);
+                if (ghData.blog) metaItems.push(`<a href="${ghData.blog.startsWith('http') ? ghData.blog : 'https://' + ghData.blog}" target="_blank" class="profile-meta-item"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18" /></svg> Website</a>`);
                 const joinDate = new Date(ghData.created_at).toLocaleDateString([], { year: 'numeric', month: 'short' });
-                metaItems.push(`<div class="profile-meta-item"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> Joined ${joinDate}</div>`);
+                metaItems.push(`<div class="profile-meta-item"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> Joined ${joinDate}</div>`);
 
                 if (ghData.followers > 10) achievements.push({ name: 'GH Rising', icon: 'github', class: 'github' });
                 if (totalStars > 50) achievements.push({ name: 'Stargazer', icon: 'star', class: 'github' });
@@ -649,24 +739,24 @@ async function renderProfile(profileId) {
         linkedin: '<path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-4 0v7h-4v-7a6 6 0 016-6zM2 9h4v12H2zM4 2a2 2 0 110 4 2 2 0 010-4z"/>'
     };
 
-    achievementsHtml = `<div class="achievements-row">${achievements.map(a => `<div class="achievement-badge ${a.class || ''}"><div class="achievement-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconMap[a.icon] || iconMap.post}</svg></div><span class="achievement-name">${a.name}</span></div>`).join('')}</div>`;
+    achievementsHtml = `<div class="achievements-row" style="display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.5rem 1rem; border-bottom: 1px solid var(--border-light);">${achievements.map(a => `<div class="achievement-badge ${a.class || ''}" style="display: flex; flex-direction: column; align-items: center; gap: 0.15rem; width: 60px; text-align: center;"><div class="achievement-icon" style="width: 32px; height: 32px; border-radius: 50%; background: var(--bg-elevated); display: flex; align-items: center; justify-content: center; color: var(--accent-primary); border: 1px solid var(--border-medium);"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 16px; height: 16px;">${iconMap[a.icon] || iconMap.post}</svg></div><span class="achievement-name" style="font-size: 0.6rem; color: var(--text-muted); font-weight: 600;">${a.name}</span></div>`).join('')}</div>`;
 
-    const verifiedHtml = profile.is_verified ? `<span class="verified-badge"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span>` : '';
-    const premiumHtml = profile.is_premium ? `<span class="premium-badge"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm14 3c0 .6-.4 1-1 1H6c-.6 0-1-.4-1-1v-1h14v1z"/></svg></span>` : '';
+    const verifiedHtml = profile.is_verified ? `<span class="verified-badge" style="display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; background: var(--accent-primary); color: #000; border-radius: 50%; margin-left: 0.25rem; vertical-align: middle;"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="width: 10px; height: 10px;"><polyline points="20 6 9 17 4 12"></polyline></svg></span>` : '';
+    const premiumHtml = profile.is_premium ? `<span class="premium-badge" style="display: inline-flex; align-items: center; justify-content: center; color: #ffd700; margin-left: 0.25rem; vertical-align: middle;"><svg fill="currentColor" viewBox="0 0 24 24" style="width: 16px; height: 16px;"><path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm14 3c0 .6-.4 1-1 1H6c-.6 0-1-.4-1-1v-1h14v1z"/></svg></span>` : '';
     
     let socialsHtml = '';
     if (profile.linkedin_url || profile.twitter_url || profile.github_url) {
-        socialsHtml = `<div class="social-links">`;
-        if (profile.github_url) socialsHtml += `<a href="${profile.github_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg></a>`;
-        if (profile.gitlab_url) socialsHtml += `<a href="${profile.gitlab_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M23.955 13.587l-1.347-4.135-2.664-8.197a.455.455 0 00-.867 0L16.413 9.45H7.587L4.923 1.255a.455.455 0 00-.867 0L1.392 9.452.045 13.587a.924.924 0 00.331 1.023L12 23.054l11.624-8.443a.92.92 0 00.331-1.024"/></svg></a>`;
-        if (profile.linkedin_url) socialsHtml += `<a href="${profile.linkedin_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg></a>`;
-        if (profile.twitter_url) socialsHtml += `<a href="${profile.twitter_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>`;
+        socialsHtml = `<div class="social-links" style="display: flex; gap: 0.75rem; padding: 0.5rem 1rem; border-bottom: 1px solid var(--border-light);">`;
+        if (profile.github_url) socialsHtml += `<a href="${profile.github_url}" target="_blank" class="social-link" style="color: var(--text-muted);"><svg fill="currentColor" viewBox="0 0 24 24" style="width: 18px; height: 18px;"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg></a>`;
+        if (profile.gitlab_url) socialsHtml += `<a href="${profile.gitlab_url}" target="_blank" class="social-link" style="color: var(--text-muted);"><svg fill="currentColor" viewBox="0 0 24 24" style="width: 18px; height: 18px;"><path d="M23.955 13.587l-1.347-4.135-2.664-8.197a.455.455 0 00-.867 0L16.413 9.45H7.587L4.923 1.255a.455.455 0 00-.867 0L1.392 9.452.045 13.587a.924.924 0 00.331 1.023L12 23.054l11.624-8.443a.92.92 0 00.331-1.024"/></svg></a>`;
+        if (profile.linkedin_url) socialsHtml += `<a href="${profile.linkedin_url}" target="_blank" class="social-link" style="color: var(--text-muted);"><svg fill="currentColor" viewBox="0 0 24 24" style="width: 18px; height: 18px;"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg></a>`;
+        if (profile.twitter_url) socialsHtml += `<a href="${profile.twitter_url}" target="_blank" class="social-link" style="color: var(--text-muted);"><svg fill="currentColor" viewBox="0 0 24 24" style="width: 18px; height: 18px;"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>`;
         socialsHtml += `</div>`;
     }
 
     const centerContent = `
         <header class="page-header">
-            <span class="header-back" onclick="currentView='feed'; renderApp()"><svg style="width: 24px; height: 24px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg></span>
+            <span class="header-back" onclick="currentView='feed'; renderApp()"><svg style="width: 20px; height: 20px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg></span>
             <div><h1 class="page-title">${profile.full_name || profile.username}</h1><div class="header-subtitle">${posts.length} Posts</div></div>
             <select class="sort-dropdown" onchange="profileSort=this.value; renderApp()">
                 <option value="newest" ${profileSort === 'newest' ? 'selected' : ''}>Newest</option>
@@ -675,20 +765,20 @@ async function renderProfile(profileId) {
             </select>
         </header>
         <div class="profile-header fade-in">
-            <div class="profile-banner" style="${profile.banner_url ? `background-image: url('${profile.banner_url}')` : ''}"></div>
-            <div class="profile-avatar-wrapper"><img src="${profile.avatar_url || `https://ui-avatars.com/api/?name=${profile.username}`}" class="profile-avatar-main">
-            ${currentUser && currentUser.id !== profileId ? `<div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;"><button onclick="handleFollow('${profileId}', ${isFollowing})" class="btn ${isFollowing ? 'btn-ghost' : 'btn-primary'} btn-sm">${isFollowing ? 'Following' : 'Follow'}</button><button onclick="startDm('${profileId}')" class="btn btn-ghost btn-sm"><svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>Message</button></div>` : currentUser && currentUser.id === profileId ? `<button onclick="showEditProfile()" class="btn btn-ghost btn-sm" style="margin-bottom: 1rem;">Edit Profile</button>` : ''}
+            <div class="profile-banner" style="height: 100px; background-size: cover; background-position: center; background-image: ${profile.banner_url ? `url('${profile.banner_url}')` : 'linear-gradient(45deg, #1a1a24, #050507, #14141b)'};"></div>
+            <div class="profile-avatar-wrapper" style="padding: 0 1rem; margin-top: -30px; display: flex; justify-content: space-between; align-items: flex-end;"><img src="${profile.avatar_url || `https://ui-avatars.com/api/?name=${profile.username}`}" class="profile-avatar-main" style="width: 70px; height: 70px; border-radius: 50%; border: 3px solid var(--bg-main); background: var(--bg-elevated); position: relative; z-index: 2; object-fit: cover;">
+            ${currentUser && currentUser.id !== profileId ? `<div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;"><button onclick="handleFollow('${profileId}', ${isFollowing})" class="btn ${isFollowing ? 'btn-ghost' : 'btn-primary'} btn-sm">${isFollowing ? 'Following' : 'Follow'}</button><button onclick="startDm('${profileId}')" class="btn btn-ghost btn-sm"><svg style="width: 14px; height: 14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>Message</button></div>` : currentUser && currentUser.id === profileId ? `<button onclick="showEditProfile()" class="btn btn-ghost btn-sm" style="margin-bottom: 0.5rem;">Edit Profile</button>` : ''}
             </div>
-            <div class="profile-info">
-                <h2 style="font-size: 1.5rem; font-weight: 800;">${profile.full_name || profile.username} ${verifiedHtml} ${premiumHtml} ${badgeHtml}</h2>
-                <p style="color: var(--text-muted);" class="font-mono">@${profile.username}</p>
-                ${profile.bio ? `<p class="profile-bio">${profile.bio}</p>` : '<p class="profile-bio" style="font-style: italic; color: var(--text-muted);">No bio yet.</p>'}
+            <div class="profile-info" style="padding: 0.5rem 1rem;">
+                <h2 style="font-size: 1.1rem; font-weight: 800;">${profile.full_name || profile.username} ${verifiedHtml} ${premiumHtml} ${badgeHtml}</h2>
+                <p style="color: var(--text-muted); font-size: 0.8rem;" class="font-mono">@${profile.username}</p>
+                ${profile.bio ? `<p class="profile-bio" style="margin-top: 0.25rem; font-size: 0.85rem;">${profile.bio}</p>` : '<p class="profile-bio" style="font-style: italic; color: var(--text-muted); font-size: 0.8rem; margin-top: 0.25rem;">No bio yet.</p>'}
             </div>
-            ${profile.domain_verified ? `<div class="profile-meta-row"><a href="https://${profile.custom_domain}" target="_blank" class="profile-meta-item"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18" /></svg> ${profile.custom_domain}</a></div>` : ''}
-            ${metaItems.length > 0 ? `<div class="profile-meta-row">${metaItems.join('')}</div>` : ''}
+            ${profile.domain_verified ? `<div class="profile-meta-row" style="display: flex; flex-wrap: wrap; gap: 0.75rem; padding: 0.5rem 1rem; border-bottom: 1px solid var(--border-light); color: var(--text-muted); font-size: 0.75rem;"><a href="https://${profile.custom_domain}" target="_blank" class="profile-meta-item" style="display: flex; align-items: center; gap: 0.25rem; color: var(--text-secondary);"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:12px;height:12px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18" /></svg> ${profile.custom_domain}</a></div>` : ''}
+            ${metaItems.length > 0 ? `<div class="profile-meta-row" style="display: flex; flex-wrap: wrap; gap: 0.75rem; padding: 0.5rem 1rem; border-bottom: 1px solid var(--border-light); color: var(--text-muted); font-size: 0.75rem;">${metaItems.join('')}</div>` : ''}
             ${socialsHtml} ${ghStatsHtml} ${achievementsHtml}
         </div>
-        <div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No posts yet.</div>'}</div>
+        <div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 2rem; text-align: center; color: var(--text-muted);">No posts yet.</div>'}</div>
     `;
     app.innerHTML = renderLayout(centerContent, 'profile');
     fetchTrendingRepos(); applySyntaxHighlighting(); initRepoStats();
@@ -701,8 +791,14 @@ function renderPostCard(post) {
     const isLiked = currentUser ? post.csns_likes.some(l => l.user_id === currentUser.id) : false;
     const timeAgo = new Date(post.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' });
     
-    let contentHtml = post.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/```([\s\S]*?)```/g, (match, p1) => `<div class="code-block-wrapper"><button class="copy-btn" onclick="copyCode(this)">Copy</button><pre class="code-block"><code class="hljs">${p1}</code></pre></div>`).replace(/\n/g, '<br>');
-    let parentHtml = post.parent ? `<div class="quote-embed" onclick="event.stopPropagation(); currentView='profile_${post.parent.user_id}'; renderApp()"><span style="font-size: 0.8rem; color: var(--text-muted);">Quote from @${post.parent.csns_profiles?.username}</span><p style="margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);">${post.parent.content.substring(0, 140)}...</p></div>` : '';
+    // Parse tags and code blocks
+    let contentHtml = post.content
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/```([\s\S]*?)```/g, (match, p1) => `<div class="code-block-wrapper"><div class="code-actions"><button class="code-btn" onclick="copyCode(this)">Copy</button><button class="code-btn" onclick="runCode(this)">Run</button></div><pre class="code-block"><code class="hljs">${p1}</code></pre><div class="code-output"></div></div>`)
+        .replace(/#(\w+)/g, '<a class="hashtag" onclick="searchTag(\'$1\')">#$1</a>')
+        .replace(/\n/g, '<br>');
+        
+    let parentHtml = post.parent ? `<div class="quote-embed" onclick="event.stopPropagation(); currentView='profile_${post.parent.user_id}'; renderApp()" style="border: 1px dashed var(--border-medium); border-radius: var(--radius-sm); padding: 0.5rem; margin-top: 0.5rem; cursor: pointer;"><span style="font-size: 0.7rem; color: var(--text-muted);">Quote from @${post.parent.csns_profiles?.username}</span><p style="margin-top: 0.25rem; font-size: 0.8rem; color: var(--text-secondary);">${post.parent.content.substring(0, 100)}...</p></div>` : '';
 
     let pollHtml = '';
     if (post.csns_polls && post.csns_polls.length > 0) {
@@ -714,21 +810,15 @@ function renderPostCard(post) {
         poll.options.forEach((opt, index) => {
             const voteCount = poll.csns_poll_votes.filter(v => v.option_index === index).length;
             const percentage = totalVotes > 0 ? Math.round((voteCount / totalVotes) * 100) : 0;
-            pollHtml += `<div class="poll-option">`;
+            pollHtml += `<div class="poll-option" style="margin-bottom: 0.25rem;">`;
             if (userVoteObj || !currentUser) {
-                pollHtml += `
-                    <div style="display: flex; justify-content: space-between; font-size: 0.9rem; margin-bottom: 0.25rem; color: var(--text-secondary);">
-                        <span>${opt} ${userVoteObj && userVoteObj.option_index === index ? '(Your vote)' : ''}</span>
-                        <span>${percentage}%</span>
-                    </div>
-                    <div class="poll-results-bar"><div class="poll-results-fill" style="width: ${percentage}%;"></div></div>
-                `;
+                pollHtml += `<div style="display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 0.15rem; color: var(--text-secondary);"><span>${opt} ${userVoteObj && userVoteObj.option_index === index ? '(You)' : ''}</span><span>${percentage}%</span></div><div class="poll-results-bar"><div class="poll-results-fill" style="width: ${percentage}%;"></div></div>`;
             } else {
                 pollHtml += `<button onclick="votePoll('${poll.id}', ${index})" class="poll-btn">${opt}</button>`;
             }
             pollHtml += `</div>`;
         });
-        pollHtml += `<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem;">${totalVotes} votes</div>`;
+        pollHtml += `<div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 0.25rem;">${totalVotes} votes</div>`;
         pollHtml += '</div>';
     }
 
@@ -740,41 +830,37 @@ function renderPostCard(post) {
     const reactionHtml = emojis.map(r => {
         const count = post.csns_reactions.filter(l => l.type === r.type).length;
         const isActive = currentUser ? post.csns_reactions.some(l => l.user_id === currentUser.id && l.type === r.type) : false;
-        return `<button onclick="handleReaction('${post.id}', '${r.type}', '${post.user_id}')" class="action-btn ${isActive ? 'liked' : ''}"><svg style="width: 18px; height: 18px;" fill="${isActive ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24">${r.icon}</svg> ${count > 0 ? count : ''}</button>`;
+        return `<button onclick="handleReaction('${post.id}', '${r.type}', '${post.user_id}')" class="action-btn ${isActive ? 'liked' : ''}"><svg fill="${isActive ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24">${r.icon}</svg> ${count > 0 ? count : ''}</button>`;
     }).join('');
 
     return `
-        <div class="post-card fade-in" style="position: relative;" onclick="currentView='profile_${post.user_id}'; renderApp()">
-            ${currentUser && currentUser.id === post.user_id ? `<button class="delete-post-btn" onclick="event.stopPropagation(); deletePost('${post.id}')"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>` : ''}
-            ${post.is_repost ? `<div class="repost-indicator"><svg style="width: 14px; height: 14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> Reposted by @${post.csns_profiles?.username}</div>` : ''}
-            <div style="display: flex; gap: 1rem;" onclick="event.stopPropagation()">
+        <div class="post-card fade-in" onclick="currentView='profile_${post.user_id}'; renderApp()">
+            ${currentUser && currentUser.id === post.user_id ? `<button class="delete-post-btn" onclick="event.stopPropagation(); deletePost('${post.id}')"><svg style="width: 14px; height: 14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>` : ''}
+            ${post.is_repost ? `<div class="repost-indicator" style="padding: 0 1rem 0.25rem 3rem; font-size: 0.7rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.25rem;"><svg style="width: 12px; height: 12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> Reposted by @${post.csns_profiles?.username}</div>` : ''}
+            <div style="display: flex; gap: 0.5rem;" onclick="event.stopPropagation()">
                 <img src="${post.csns_profiles?.avatar_url || `https://ui-avatars.com/api/?name=${post.csns_profiles?.username}`}" class="post-avatar" onclick="currentView='profile_${post.user_id}'; renderApp()">
                 <div style="flex: 1;">
                     <div class="post-header" style="margin-bottom: 0;">
                         <span class="post-name" onclick="currentView='profile_${post.user_id}'; renderApp()">${post.csns_profiles?.full_name || post.csns_profiles?.username}</span>
-                        ${post.csns_profiles?.is_verified ? `<span class="verified-badge" style="width: 14px; height: 14px;"><svg style="width: 8px; height: 8px;" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span>` : ''}
+                        ${post.csns_profiles?.is_verified ? `<span class="verified-badge" style="width: 12px; height: 12px;"><svg style="width: 6px; height: 6px;" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span>` : ''}
                         <span class="post-username">@${post.csns_profiles?.username}</span>
-                        <span style="color: var(--text-muted); font-size: 0.9rem;">• ${timeAgo}</span>
+                        <span style="color: var(--text-muted); font-size: 0.7rem;">• ${timeAgo}</span>
                     </div>
-                    ${post.post_type !== 'post' ? `<div class="post-tag tag-${post.post_type}">${post.post_type}</div>` : ''}
+                    ${post.post_type !== 'post' ? `<div class="post-tag tag-${post.post_type}" style="display: inline-block; padding: 1px 4px; border-radius: 4px; font-size: 0.6rem; font-weight: 700; margin-bottom: 0.25rem; text-transform: uppercase; background: rgba(168, 85, 247, 0.2); color: #a855f7;">${post.post_type}</div>` : ''}
                     <div class="post-content">${contentHtml}</div>
                     ${parentHtml}
                     ${post.image_url ? `<img src="${post.image_url}" class="post-image" alt="Post image">` : ''}
                     ${pollHtml}
-                    ${post.csns_post_repos && post.csns_post_repos.length > 0 ? post.csns_post_repos.map(repo => `<a href="${repo.repo_url}" target="_blank" class="repo-embed" data-owner="${repo.owner}" data-repo="${repo.repo_name}"><div class="repo-embed-content"><div class="repo-embed-header">${repo.platform === 'github' ? `<svg style="width: 20px; height: 20px;" fill="currentColor" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>` : `<svg style="width: 20px; height: 20px;" fill="currentColor" viewBox="0 0 24 24"><path d="M23.955 13.587l-1.347-4.135-2.664-8.197a.455.455 0 00-.867 0L16.413 9.45H7.587L4.923 1.255a.455.455 0 00-.867 0L1.392 9.452.045 13.587a.924.924 0 00.331 1.023L12 23.054l11.624-8.443a.92.92 0 00.331-1.024"/></svg>`} ${repo.owner} / ${repo.repo_name}</div><div class="repo-embed-desc font-mono">${repo.repo_url}</div><div class="repo-stats"><span class="repo-stat">Loading stats...</span></div></div></a>`).join('') : ''}
+                    ${post.csns_post_repos && post.csns_post_repos.length > 0 ? post.csns_post_repos.map(repo => `<a href="${repo.repo_url}" target="_blank" class="repo-embed" data-owner="${repo.owner}" data-repo="${repo.repo_name}" style="border: 1px solid var(--border-light); border-radius: var(--radius-sm); margin-top: 0.5rem; background: var(--bg-surface); display: block; text-decoration: none;"><div style="padding: 0.5rem;"><div style="display: flex; align-items: center; gap: 0.25rem; color: var(--accent-primary); font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; font-weight: 600;">${repo.platform === 'github' ? `<svg style="width: 14px; height: 14px;" fill="currentColor" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>` : `<svg style="width: 14px; height: 14px;" fill="currentColor" viewBox="0 0 24 24"><path d="M23.955 13.587l-1.347-4.135-2.664-8.197a.455.455 0 00-.867 0L16.413 9.45H7.587L4.923 1.255a.455.455 0 00-.867 0L1.392 9.452.045 13.587a.924.924 0 00.331 1.023L12 23.054l11.624-8.443a.92.92 0 00.331-1.024"/></svg>`} ${repo.owner} / ${repo.repo_name}</div><div class="repo-embed-desc font-mono" style="font-size: 0.65rem; color: var(--text-muted);">${repo.repo_url}</div><div class="repo-stats" style="display: flex; gap: 0.5rem; margin-top: 0.25rem; font-size: 0.65rem; color: var(--text-muted);"><span class="repo-stat">Loading stats...</span></div></div></a>`).join('') : ''}
                     <div class="post-actions">
-                        <button onclick="toggleComments('${post.id}', '${post.user_id}')" class="action-btn"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg></button>
-                        <button onclick="showQuoteModal('${post.id}', false)" class="action-btn"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg></button>
-                        <button onclick="showQuoteModal('${post.id}', true)" class="action-btn"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></button>
+                        <button onclick="toggleComments('${post.id}', '${post.user_id}')" class="action-btn"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg></button>
+                        <button onclick="showQuoteModal('${post.id}', false)" class="action-btn"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg></button>
+                        <button onclick="showQuoteModal('${post.id}', true)" class="action-btn"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></button>
                         
-                        <!-- Standard Like (Thumbs Up) -->
-                        <button onclick="handleLike('${post.id}', '${post.user_id}')" class="action-btn ${isLiked ? 'liked' : ''}"><svg style="width: 18px; height: 18px;" fill="${isLiked ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" /></svg> ${post.csns_likes.length > 0 ? post.csns_likes.length : ''}</button>
-                        
-                        <!-- Emoji Reactions -->
+                        <button onclick="handleLike('${post.id}', '${post.user_id}')" class="action-btn ${isLiked ? 'liked' : ''}"><svg fill="${isLiked ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" /></svg> ${post.csns_likes.length > 0 ? post.csns_likes.length : ''}</button>
                         ${reactionHtml}
-
-                        <button class="action-btn"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg> ${post.views || 0}</button>
-                        <button onclick="handleBookmark('${post.id}', ${isSaved})" class="action-btn ${isSaved ? 'saved' : ''}"><svg style="width: 18px; height: 18px;" fill="${isSaved ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg></button>
+                        <button class="action-btn"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg> ${post.views || 0}</button>
+                        <button onclick="handleBookmark('${post.id}', ${isSaved})" class="action-btn ${isSaved ? 'saved' : ''}"><svg fill="${isSaved ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg></button>
                     </div>
                     <div id="comments-${post.id}" class="comment-section" style="display: none;"></div>
                 </div>
