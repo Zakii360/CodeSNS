@@ -797,6 +797,33 @@ async function renderProfile(profileId) {
 
 function applySyntaxHighlighting() { document.querySelectorAll('pre code').forEach(block => { if (!block.dataset.highlighted) { hljs.highlightElement(block); block.dataset.highlighted = 'true'; } }); }
 
+// State to cache link previews so we don't fetch them every render
+let linkPreviewCache = {};
+
+window.fetchLinkPreview = async function(url, postId) {
+    if (linkPreviewCache[url]) {
+        const el = document.getElementById(`lp-${postId}`);
+        if (el) el.innerHTML = linkPreviewCache[url];
+        return;
+    }
+    try {
+        const { data, error } = await sb.functions.invoke('link-preview', { body: { url }, method: 'POST' });
+        if (error || data.error) return;
+        
+        const html = `
+            <img src="${data.image || ''}" alt="Preview" onerror="this.style.display='none'">
+            <div class="link-preview-content">
+                <div class="link-preview-title">${data.title}</div>
+                <div class="link-preview-desc">${data.description}</div>
+                <div class="link-preview-domain">${data.siteName}</div>
+            </div>
+        `;
+        linkPreviewCache[url] = html;
+        const el = document.getElementById(`lp-${postId}`);
+        if (el) el.innerHTML = html;
+    } catch (e) {}
+}
+
 function renderPostCard(post) {
     const isSaved = currentUser ? post.csns_bookmarks.some(b => b.user_id === currentUser.id) : false;
     const isLiked = currentUser ? post.csns_likes.some(l => l.user_id === currentUser.id) : false;
@@ -809,6 +836,20 @@ function renderPostCard(post) {
         .replace(/\n/g, '<br>');
         
     let parentHtml = post.parent ? `<div class="quote-embed" onclick="event.stopPropagation(); currentView='profile_${post.parent.user_id}'; renderApp()" style="border: 1px dashed var(--border-medium); border-radius: var(--radius-md); padding: 1rem; margin-top: 1rem; cursor: pointer;"><span style="font-size: 0.8rem; color: var(--text-muted);">Quote from @${post.parent.csns_profiles?.username}</span><p style="margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);">${post.parent.content.substring(0, 140)}...</p></div>` : '';
+
+    // Link Preview Extraction
+    let linkPreviewHtml = '';
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const urls = post.content.match(urlRegex);
+    if (urls && urls.length > 0) {
+        // Filter out github/gitlab repo links if they are already embedded
+        const genericUrls = urls.filter(u => !post.csns_post_repos?.some(r => u.includes(r.repo_url)));
+        if (genericUrls.length > 0) {
+            const targetUrl = genericUrls[0];
+            linkPreviewHtml = `<a href="${targetUrl}" target="_blank" class="link-preview" onclick="event.stopPropagation()"><div id="lp-${post.id}" style="display: flex; width: 100%; height: 100%;"><div style="padding: 1rem; color: var(--text-muted); font-size: 0.8rem;">Loading preview...</div></div></a>`;
+            setTimeout(() => window.fetchLinkPreview(targetUrl, post.id), 100);
+        }
+    }
 
     let pollHtml = '';
     if (post.csns_polls && post.csns_polls.length > 0) {
@@ -858,6 +899,7 @@ function renderPostCard(post) {
                     </div>
                     ${post.post_type !== 'post' ? `<div class="post-tag tag-${post.post_type}">${post.post_type}</div>` : ''}
                     <div class="post-content">${contentHtml}</div>
+                    ${linkPreviewHtml}
                     ${parentHtml}
                     ${post.image_url ? `<img src="${post.image_url}" class="post-image" alt="Post image">` : ''}
                     ${pollHtml}
