@@ -1,8 +1,5 @@
-// ==========================================
-// 1. INITIALIZATION & CONFIG
-// ==========================================
-const SUPABASE_URL = 'https://tvxugmumfvgnvjacwwfz.supabase.co'; 
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2eHVnbXVtZnZnbnZqYWN3d2Z6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3NjQ1MzEsImV4cCI6MjA5NjM0MDUzMX0.76wR9dblt8W9u-OioqQH7NOethNq1BMfjTDl9xcpYYI'; 
+const SUPABASE_URL = 'https://tvxugmumfvgnvjacwwfz.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2eHVnbXVtZnZnbnZqYWN3d2Z6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3NjQ1MzEsImV4cCI6MjA5NjM0MDUzMX0.76wR9dblt8W9u-OioqQH7NOethNq1BMfjTDl9xcpYYI';
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: {
@@ -16,21 +13,19 @@ const app = document.getElementById('app');
 let currentUser = null;
 let currentView = 'feed'; 
 let selectedImageFile = null;
-let devTip = "Use `git commit --amend` to modify your most recent commit without creating a new one."; // Fallback
+let devTip = "Use `git commit --amend` to modify your most recent commit without creating a new one.";
 
-// Fetch AI Tip on load
 async function fetchDevTip() {
     try {
         const { data, error } = await sb.functions.invoke('groq-tip');
         if (!error && data.tip) {
             devTip = data.tip;
+            const tipElement = document.getElementById('dev-tip-text');
+            if (tipElement) tipElement.innerText = devTip;
         }
-    } catch (e) { console.log("Edge function not ready or missing key"); }
+    } catch (e) {}
 }
 
-// ==========================================
-// 2. AUTH & ROUTING
-// ==========================================
 async function checkAuth() {
     const { data: { session } } = await sb.auth.getSession();
     if (session) {
@@ -76,9 +71,6 @@ sb.auth.onAuthStateChange((event, session) => {
     if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') checkAuth();
 });
 
-// ==========================================
-// 3. ACTIONS
-// ==========================================
 window.handleImageSelect = function(input) {
     if (input.files && input.files[0]) {
         selectedImageFile = input.files[0];
@@ -98,7 +90,6 @@ window.handlePost = async function() {
 
     let imageUrl = null;
     
-    // Upload image if selected
     if (selectedImageFile) {
         const fileName = `${Date.now()}_${selectedImageFile.name}`;
         const { data: uploadData, error: uploadError } = await sb.storage.from('post_images').upload(fileName, selectedImageFile);
@@ -193,6 +184,7 @@ window.showEditProfile = function() {
     document.getElementById('edit-fullname').value = currentUser.full_name || '';
     document.getElementById('edit-bio').value = currentUser.bio || '';
     document.getElementById('edit-avatar-url').value = currentUser.avatar_url || '';
+    document.getElementById('edit-banner-url').value = currentUser.banner_url || '';
 }
 
 window.closeEditProfile = function() {
@@ -203,16 +195,20 @@ window.saveProfile = async function() {
     const fullName = document.getElementById('edit-fullname').value;
     const bio = document.getElementById('edit-bio').value;
     const avatarUrl = document.getElementById('edit-avatar-url').value;
+    const bannerUrl = document.getElementById('edit-banner-url').value;
     
-    const { data } = await sb.from('csns_profiles').update({ full_name: fullName, bio: bio, avatar_url: avatarUrl }).eq('id', currentUser.id).select().single();
+    const { data } = await sb.from('csns_profiles').update({ 
+        full_name: fullName, 
+        bio: bio, 
+        avatar_url: avatarUrl,
+        banner_url: bannerUrl
+    }).eq('id', currentUser.id).select().single();
+    
     currentUser = data;
     closeEditProfile();
     renderApp();
 }
 
-// ==========================================
-// 4. UI RENDERING
-// ==========================================
 async function renderApp() {
     if (currentView.startsWith('profile_')) {
         await renderProfile(currentView.split('_')[1]);
@@ -226,19 +222,28 @@ function renderLayout(centerContent, activeNav = 'home') {
     
     return `
         <div class="main-layout">
-            <!-- EDIT PROFILE MODAL -->
             <div id="edit-modal" class="modal-overlay" style="display: none;">
                 <div class="modal-content">
                     <div class="modal-header">
                         <h2 class="modal-title">Edit Profile</h2>
                         <button class="modal-close" onclick="closeEditProfile()">&times;</button>
                     </div>
-                    <label class="modal-label">Full Name</label>
-                    <input id="edit-fullname" type="text" class="modal-input">
-                    <label class="modal-label">Bio</label>
-                    <textarea id="edit-bio" class="modal-input modal-textarea"></textarea>
-                    <label class="modal-label">Avatar Image URL</label>
-                    <input id="edit-avatar-url" type="text" class="modal-input" placeholder="https://...">
+                    <div class="modal-input-group">
+                        <label class="modal-label">Full Name</label>
+                        <input id="edit-fullname" type="text" class="modal-input">
+                    </div>
+                    <div class="modal-input-group">
+                        <label class="modal-label">Bio</label>
+                        <textarea id="edit-bio" class="banner-input"></textarea>
+                    </div>
+                    <div class="modal-input-group">
+                        <label class="modal-label">Avatar Image URL</label>
+                        <input id="edit-avatar-url" type="text" class="modal-input" placeholder="https://...">
+                    </div>
+                    <div class="modal-input-group">
+                        <label class="modal-label">Banner Image URL</label>
+                        <input id="edit-banner-url" type="text" class="modal-input" placeholder="https://...">
+                    </div>
                     <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem;">
                         <button class="btn btn-ghost btn-sm" onclick="closeEditProfile()">Cancel</button>
                         <button class="btn btn-primary btn-sm" onclick="saveProfile()">Save</button>
@@ -246,7 +251,6 @@ function renderLayout(centerContent, activeNav = 'home') {
                 </div>
             </div>
 
-            <!-- LEFT SIDEBAR -->
             <aside class="left-sidebar">
                 <div class="logo">⚡ CodeSNS</div>
                 <nav style="flex: 1;">
@@ -282,10 +286,8 @@ function renderLayout(centerContent, activeNav = 'home') {
                 `}
             </aside>
 
-            <!-- CENTER FEED -->
             <main class="center-feed">${centerContent}</main>
 
-            <!-- RIGHT SIDEBAR -->
             <aside class="right-sidebar">
                 <input type="text" class="search-box" placeholder="Search CodeSNS...">
                 <div class="widget">
@@ -301,7 +303,7 @@ function renderLayout(centerContent, activeNav = 'home') {
                 </div>
                 <div class="widget">
                     <h3 class="widget-title">💡 AI Dev Tip</h3>
-                    <p style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5;">
+                    <p id="dev-tip-text" style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5;">
                         ${devTip}
                     </p>
                 </div>
@@ -376,7 +378,7 @@ async function renderProfile(profileId) {
         </header>
 
         <div class="profile-header fade-in">
-            <div class="profile-banner"></div>
+            <div class="profile-banner" style="${profile.banner_url ? `background-image: url('${profile.banner_url}')` : ''}"></div>
             <div class="profile-avatar-wrapper">
                 <img src="${profile.avatar_url || `https://ui-avatars.com/api/?name=${profile.username}`}" class="profile-avatar-main">
                 ${currentUser && currentUser.id !== profileId ? `
@@ -460,6 +462,5 @@ function renderPostCard(post) {
     `;
 }
 
-// Start the app
 fetchDevTip();
 checkAuth();
