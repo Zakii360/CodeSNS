@@ -110,7 +110,6 @@ async function fetchNotifications() {
     return data || [];
 }
 
-// FIX: Runs after HTML is rendered to fetch repo stats
 async function initRepoStats() {
     const embeds = document.querySelectorAll('.repo-embed[data-owner]');
     for (const el of embeds) {
@@ -344,9 +343,10 @@ window.showEditProfile = function() {
     document.getElementById('edit-bio').value = currentUser.bio || '';
     document.getElementById('edit-avatar-url').value = currentUser.avatar_url || '';
     document.getElementById('edit-banner-url').value = currentUser.banner_url || '';
+    document.getElementById('edit-github').value = currentUser.github_url || ''; 
+    document.getElementById('edit-gitlab').value = currentUser.gitlab_url || '';
     document.getElementById('edit-linkedin').value = currentUser.linkedin_url || '';
     document.getElementById('edit-twitter').value = currentUser.twitter_url || '';
-    document.getElementById('edit-gitlab').value = currentUser.gitlab_url || '';
     document.getElementById('edit-domain').value = currentUser.custom_domain || '';
     
     document.getElementById('dns-txt').innerText = `codesns-verify=${currentUser.id}`;
@@ -368,9 +368,10 @@ window.saveProfile = async function() {
         bio: document.getElementById('edit-bio').value, 
         avatar_url: document.getElementById('edit-avatar-url').value,
         banner_url: document.getElementById('edit-banner-url').value,
+        github_url: document.getElementById('edit-github').value, 
+        gitlab_url: document.getElementById('edit-gitlab').value,
         linkedin_url: document.getElementById('edit-linkedin').value,
         twitter_url: document.getElementById('edit-twitter').value,
-        gitlab_url: document.getElementById('edit-gitlab').value,
         custom_domain: document.getElementById('edit-domain').value
     }).eq('id', currentUser.id).select().single();
     currentUser = data;
@@ -468,7 +469,7 @@ function renderLayout(centerContent, activeNav = 'home') {
                     <div class="modal-input-group"><label class="modal-label">Bio</label><textarea id="edit-bio" class="banner-input"></textarea></div>
                     <div class="modal-input-group"><label class="modal-label">Avatar Image URL</label><input id="edit-avatar-url" type="text" class="modal-input" placeholder="https://..."></div>
                     <div class="modal-input-group"><label class="modal-label">Banner Image URL</label><input id="edit-banner-url" type="text" class="modal-input" placeholder="https://..."></div>
-                    <div class="modal-input-group"><label class="modal-label">GitHub URL</label><input id="edit-github" type="text" class="modal-input" placeholder="https://github.com/..." value="${currentUser?.github_url || ''}"></div>
+                    <div class="modal-input-group"><label class="modal-label">GitHub URL</label><input id="edit-github" type="text" class="modal-input" placeholder="https://github.com/..."></div>
                     <div class="modal-input-group"><label class="modal-label">GitLab URL</label><input id="edit-gitlab" type="text" class="modal-input" placeholder="https://gitlab.com/..."></div>
                     
                     <div class="modal-input-group"><label class="modal-label">Custom Domain (Premium)</label><input id="edit-domain" type="text" class="modal-input" placeholder="yourdomain.com" oninput="updateDnsHost(this.value)">
