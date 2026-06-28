@@ -419,22 +419,25 @@ async function renderFollowing() {
 async function renderNews() {
     const centerContent = `
         <header class="page-header"><h1 class="page-title">Dev News</h1></header>
-        <div id="news-feed" style="padding: 1rem; text-align: center; color: var(--text-muted);">Fetching top stories from Hacker News...</div>
+        <div id="news-feed" style="padding: 1rem; text-align: center; color: var(--text-muted);">Fetching top tech articles...</div>
     `;
     app.innerHTML = renderLayout(centerContent, 'news');
     
     try {
-        const res = await fetch('https://hacker-news.firebaseio.com/v0/topstories.json');
-        const ids = (await res.json()).slice(0, 20);
-        const items = await Promise.all(ids.map(id => fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`).then(r => r.json())));
+        const res = await fetch('https://dev.to/api/articles?per_page=20&top=7');
+        const items = await res.json();
         
         const html = items.map(item => `
-            <a href="${item.url || `https://news.ycombinator.com/item?id=${item.id}`}" target="_blank" class="news-item">
-                <div class="news-title">${item.title}</div>
-                <div class="news-meta">
-                    <span>⬆️ ${item.score}</span>
-                    <span>💬 ${item.descendants || 0}</span>
-                    <span>by ${item.by}</span>
+            <a href="${item.url}" target="_blank" class="news-item">
+                ${item.cover_image ? `<img src="${item.cover_image}" class="news-image" alt="${item.title}">` : ''}
+                <div class="news-content">
+                    <div class="news-title">${item.title}</div>
+                    <div class="news-meta">
+                        <span class="news-tag">#${item.tag_list[0] || 'dev'}</span>
+                        <span>by ${item.user.name}</span>
+                        <span>💬 ${item.comments_count}</span>
+                        <span>❤️ ${item.public_reactions_count}</span>
+                    </div>
                 </div>
             </a>
         `).join('');
