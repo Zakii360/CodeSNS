@@ -67,8 +67,13 @@ sb.auth.onAuthStateChange((event, session) => {
 });
 
 // ==========================================
-// GITHUB API INTEGRATIONS
+// HELPERS & INTEGRATIONS
 // ==========================================
+async function createNotification(actorId, userId, type, postId = null) {
+    if (actorId === userId) return;
+    await sb.from('csns_notifications').insert({ actor_id: actorId, user_id: userId, type, post_id: postId });
+}
+
 async function fetchRepoStats(owner, repo, postId) {
     try {
         const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
@@ -77,9 +82,9 @@ async function fetchRepoStats(owner, repo, postId) {
         const statsEl = document.getElementById(`repo-stats-${postId}`);
         if (statsEl) {
             statsEl.innerHTML = `
-                <span class="repo-stat">⭐ ${data.stargazers_count}</span>
-                <span class="repo-stat">🍴 ${data.forks_count}</span>
-                <span class="repo-stat" style="color: #${data.language ? 'a855f7' : 'fff'};">${data.language || 'Code'}</span>
+                <span class="repo-stat"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg> ${data.stargazers_count}</span>
+                <span class="repo-stat"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" /></svg> ${data.forks_count}</span>
+                <span class="repo-stat" style="color: ${data.language ? '#a855f7' : '#fff'};">${data.language || 'Code'}</span>
             `;
         }
     } catch (e) {}
@@ -97,21 +102,69 @@ async function fetchTrendingRepos() {
             trendEl.innerHTML = data.items.map(r => `
                 <div class="trend-item">
                     <div class="font-mono" style="color: var(--accent-primary); font-size: 0.9rem;">${r.full_name}</div>
-                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">⭐ ${r.stargazers_count} - ${r.description || 'No description'}</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem; display: flex; align-items: center; gap: 0.5rem;">
+                        <svg style="width: 12px; height: 12px;" fill="currentColor" viewBox="0 0 24 24"><path d="M12 .587l3.668 7.568 8.332 1.151-6.064 5.828 1.48 8.279L12 18.896l-7.416 3.917 1.48-8.279L0 8.306l8.332-1.151z"/></svg>
+                        ${r.stargazers_count} - ${r.description ? r.description.substring(0, 30) + '...' : 'No desc'}
+                    </div>
                 </div>
             `).join('');
         }
     } catch (e) {}
 }
 
+async function fetchNotifications() {
+    if (!currentUser) return [];
+    const { data } = await sb.from('csns_notifications').select('*, actor:actor_id(*)').eq('user_id', currentUser.id).order('created_at', { ascending: false }).limit(15);
+    return data || [];
+}
+
+window.toggleNotifDropdown = async function(e) {
+    e.stopPropagation();
+    const dropdown = document.getElementById('notif-dropdown');
+    if (dropdown.classList.contains('active')) {
+        dropdown.classList.remove('active');
+        return;
+    }
+    
+    dropdown.classList.add('active');
+    dropdown.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-muted);">Loading...</div>';
+    const notifs = await fetchNotifications();
+    
+    if (notifs.length === 0) {
+        dropdown.innerHTML = '<div style="padding: 2rem; text-align: center; color: var(--text-muted);">No notifications yet.</div>';
+        return;
+    }
+    
+    dropdown.innerHTML = notifs.map(n => `
+        <div class="notif-item ${!n.read ? 'unread' : ''}" onclick="handleNotifClick('${n.id}', '${n.type}', '${n.post_id || ''}', '${n.actor_id}')">
+            <img src="${n.actor?.avatar_url || `https://ui-avatars.com/api/?name=${n.actor?.username}`}" class="post-avatar" style="width: 32px; height: 32px;">
+            <div style="flex: 1;">
+                <span style="font-weight: 700;">@${n.actor?.username}</span> ${n.type === 'like' ? 'liked your post' : n.type === 'comment' ? 'commented on your post' : n.type === 'follow' ? 'followed you' : 'sent you a message'}
+            </div>
+            ${!n.read ? '<div class="notif-dot"></div>' : ''}
+        </div>
+    `).join('');
+    
+    // Mark as read
+    const unreadIds = notifs.filter(n => !n.read).map(n => n.id);
+    if (unreadIds.length > 0) {
+        await sb.from('csns_notifications').update({ read: true }).in('id', unreadIds);
+    }
+}
+
+window.handleNotifClick = async function(id, type, postId, actorId) {
+    document.getElementById('notif-dropdown').classList.remove('active');
+    if (type === 'follow') { currentView = `profile_${actorId}`; renderApp(); }
+    else if (type === 'message') { activeChatUser = actorId; currentView = 'messages'; renderApp(); }
+    else if (postId) { currentView = 'feed'; renderApp(); setTimeout(() => toggleComments(postId), 500); }
+}
+
 // ==========================================
-// POST ACTIONS
+// ACTIONS
 // ==========================================
 window.setPostType = function(type) {
     selectedPostType = type;
-    document.querySelectorAll('.type-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.type === type);
-    });
+    document.querySelectorAll('.type-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.type === type));
 }
 
 window.handleImageSelect = function(input) {
@@ -134,11 +187,7 @@ window.handlePost = async function(parentId = null, isRepost = false) {
         content = document.getElementById('post-content').value;
         postType = selectedPostType;
     } else {
-        if (isRepost) {
-            content = ''; 
-        } else {
-            content = document.getElementById('quote-content').value;
-        }
+        if (!isRepost) content = document.getElementById('quote-content').value;
     }
 
     if (!content.trim() && !isRepost) return;
@@ -146,17 +195,17 @@ window.handlePost = async function(parentId = null, isRepost = false) {
     let imageUrl = null;
     if (selectedImageFile && !parentId) {
         const fileName = `${Date.now()}_${selectedImageFile.name}`;
-        const { data: uploadData, error: uploadError } = await sb.storage.from('post_images').upload(fileName, selectedImageFile);
-        if (!uploadError) imageUrl = sb.storage.from('post_images').getPublicUrl(fileName).data.publicUrl;
+        const { data: uploadData } = await sb.storage.from('post_images').upload(fileName, selectedImageFile);
+        if (uploadData) imageUrl = sb.storage.from('post_images').getPublicUrl(fileName).data.publicUrl;
         selectedImageFile = null;
     }
 
     const { data: newPost, error } = await sb.from('csns_posts').insert({
         content, user_id: currentUser.id, image_url: imageUrl,
         parent_post_id: parentId, is_repost: isRepost, post_type: postType
-    }).select('id').single();
+    }).select('id, user_id').single();
 
-    if (error) { alert('Error posting'); return; }
+    if (error) return;
 
     if (!parentId) {
         const repoUrl = document.getElementById('repo-url').value;
@@ -166,22 +215,28 @@ window.handlePost = async function(parentId = null, isRepost = false) {
                 const parts = u.pathname.split('/').filter(Boolean);
                 if (parts.length >= 2 && (u.hostname.includes('github') || u.hostname.includes('gitlab'))) {
                     const platform = u.hostname.includes('github') ? 'github' : 'gitlab';
-                    await sb.from('csns_post_repos').insert({
-                        post_id: newPost.id, platform, owner: parts[0], repo_name: parts[1], repo_url: repoUrl
-                    });
+                    await sb.from('csns_post_repos').insert({ post_id: newPost.id, platform, owner: parts[0], repo_name: parts[1], repo_url: repoUrl });
                 }
             } catch(e) {}
         }
+    }
+    
+    if (parentId) {
+        const { data: parentPost } = await sb.from('csns_posts').select('user_id').eq('id', parentId).single();
+        if (parentPost) createNotification(currentUser.id, parentPost.user_id, isRepost ? 'repost' : 'comment', parentId);
     }
     
     closeQuoteModal();
     renderApp();
 }
 
-window.handleLike = async function(postId, isLiked) {
+window.handleLike = async function(postId, isLiked, ownerId) {
     if (!currentUser) return alert('Please login to like posts.');
     if (isLiked) await sb.from('csns_likes').delete().match({ post_id: postId, user_id: currentUser.id });
-    else await sb.from('csns_likes').insert({ post_id: postId, user_id: currentUser.id });
+    else {
+        await sb.from('csns_likes').insert({ post_id: postId, user_id: currentUser.id });
+        createNotification(currentUser.id, ownerId, 'like', postId);
+    }
     renderApp();
 }
 
@@ -195,13 +250,15 @@ window.handleBookmark = async function(postId, isSaved) {
 window.handleFollow = async function(targetId, isFollowing) {
     if (!currentUser) return;
     if (isFollowing) await sb.from('csns_follows').delete().match({ follower_id: currentUser.id, following_id: targetId });
-    else await sb.from('csns_follows').insert({ follower_id: currentUser.id, following_id: targetId });
+    else {
+        await sb.from('csns_follows').insert({ follower_id: currentUser.id, following_id: targetId });
+        createNotification(currentUser.id, targetId, 'follow');
+    }
     renderApp();
 }
 
 window.copyCode = function(btn) {
-    const code = btn.previousElementSibling.innerText;
-    navigator.clipboard.writeText(code);
+    navigator.clipboard.writeText(btn.previousElementSibling.innerText);
     btn.innerText = 'Copied!';
     setTimeout(() => btn.innerText = 'Copy', 2000);
 }
@@ -214,10 +271,7 @@ window.showQuoteModal = function(postId, isRepost) {
     document.getElementById('quote-content').style.display = isRepost ? 'none' : 'block';
 }
 
-window.closeQuoteModal = function() {
-    document.getElementById('quote-modal').style.display = 'none';
-}
-
+window.closeQuoteModal = function() { document.getElementById('quote-modal').style.display = 'none'; }
 window.submitQuote = function() {
     const modal = document.getElementById('quote-modal');
     handlePost(modal.dataset.postId, modal.dataset.isRepost === 'true');
@@ -252,17 +306,15 @@ window.toggleComments = async function(postId) {
     }
 }
 
-window.submitComment = async function(postId) {
+window.submitComment = async function(postId, ownerId) {
     const input = document.getElementById(`comment-input-${postId}`);
     if (!input.value.trim()) return;
     await sb.from('csns_comments').insert({ post_id: postId, user_id: currentUser.id, content: input.value });
+    createNotification(currentUser.id, ownerId, 'comment', postId);
     toggleComments(postId);
     setTimeout(() => toggleComments(postId), 200);
 }
 
-// ==========================================
-// PROFILE & MESSAGING
-// ==========================================
 window.showEditProfile = function() {
     document.getElementById('edit-modal').style.display = 'flex';
     document.getElementById('edit-fullname').value = currentUser.full_name || '';
@@ -270,9 +322,7 @@ window.showEditProfile = function() {
     document.getElementById('edit-avatar-url').value = currentUser.avatar_url || '';
     document.getElementById('edit-banner-url').value = currentUser.banner_url || '';
 }
-
 window.closeEditProfile = function() { document.getElementById('edit-modal').style.display = 'none'; }
-
 window.saveProfile = async function() {
     const { data } = await sb.from('csns_profiles').update({ 
         full_name: document.getElementById('edit-fullname').value, 
@@ -285,57 +335,34 @@ window.saveProfile = async function() {
     renderApp();
 }
 
-window.startDm = function(userId) {
-    if (!currentUser) return;
-    activeChatUser = userId;
-    currentView = 'messages';
-    renderApp();
-}
-
+window.startDm = function(userId) { if (!currentUser) return; activeChatUser = userId; currentView = 'messages'; renderApp(); }
 window.selectConversation = function(userId) { activeChatUser = userId; renderMessages(); }
-
 window.sendDm = async function() {
     const input = document.getElementById('dm-input');
     if (!input.value.trim() || !activeChatUser) return;
     await sb.from('csns_messages').insert({ sender_id: currentUser.id, receiver_id: activeChatUser, content: input.value });
+    createNotification(currentUser.id, activeChatUser, 'message');
     input.value = '';
     renderMessages();
 }
 
-// ==========================================
-// SEARCH
-// ==========================================
 window.handleSearchInput = function(e) {
     clearTimeout(searchTimeout);
     const query = e.target.value.trim();
     const resultsDiv = document.getElementById('search-results');
-    
     if (!query) { resultsDiv.style.display = 'none'; return; }
-    
     searchTimeout = setTimeout(async () => {
         resultsDiv.style.display = 'block';
         resultsDiv.innerHTML = '<div class="search-item">Searching...</div>';
-        
-        let userResults = [];
-        if (query.startsWith('@') || query.length > 1) {
-            const cleanQuery = query.replace('@', '');
-            const { data } = await sb.from('csns_profiles').select('*').ilike('username', `%${cleanQuery}%`).limit(5);
-            userResults = data || [];
-        }
-        
-        if (userResults.length === 0) {
-            resultsDiv.innerHTML = '<div class="search-item">No users found.</div>';
-        } else {
-            resultsDiv.innerHTML = userResults.map(u => `
-                <div class="search-item" onclick="currentView='profile_${u.id}'; renderApp(); document.getElementById('search-results').style.display='none';">
-                    <img src="${u.avatar_url || `https://ui-avatars.com/api/?name=${u.username}`}" class="post-avatar" style="width: 32px; height: 32px;">
-                    <div>
-                        <div style="font-weight: 700; font-size: 0.9rem;">${u.full_name || u.username}</div>
-                        <div style="font-size: 0.8rem; color: var(--text-muted);" class="font-mono">@${u.username}</div>
-                    </div>
-                </div>
-            `).join('');
-        }
+        const cleanQuery = query.replace('@', '');
+        const { data } = await sb.from('csns_profiles').select('*').ilike('username', `%${cleanQuery}%`).limit(5);
+        if (!data || data.length === 0) resultsDiv.innerHTML = '<div class="search-item">No users found.</div>';
+        else resultsDiv.innerHTML = data.map(u => `
+            <div class="search-item" onclick="currentView='profile_${u.id}'; renderApp(); document.getElementById('search-results').style.display='none';">
+                <img src="${u.avatar_url || `https://ui-avatars.com/api/?name=${u.username}`}" class="post-avatar" style="width: 32px; height: 32px;">
+                <div><div style="font-weight: 700; font-size: 0.9rem;">${u.full_name || u.username}</div><div style="font-size: 0.8rem; color: var(--text-muted);" class="font-mono">@${u.username}</div></div>
+            </div>
+        `).join('');
     }, 300);
 }
 
@@ -353,25 +380,20 @@ async function renderApp() {
 
 function renderLayout(centerContent, activeNav = 'home') {
     const avatarUrl = currentUser?.avatar_url || `https://ui-avatars.com/api/?name=${currentUser?.username || 'Guest'}`;
-    
     return `
-        <div class="main-layout">
+        <div class="main-layout" onclick="document.getElementById('notif-dropdown')?.classList.remove('active'); document.getElementById('search-results')?.style.setProperty('display', 'none')">
             <div id="edit-modal" class="modal-overlay" style="display: none;">
-                <div class="modal-content">
-                    <div class="modal-header"><h2 class="modal-title">Edit Profile</h2><button class="modal-close" onclick="closeEditProfile()">&times;</button></div>
-                    <div class="modal-input-group"><label class="modal-label">Full Name</label><input id="edit-fullname" type="text" class="modal-input"></div>
-                    <div class="modal-input-group"><label class="modal-label">Bio</label><textarea id="edit-bio" class="banner-input"></textarea></div>
-                    <div class="modal-input-group"><label class="modal-label">Avatar Image URL</label><input id="edit-avatar-url" type="text" class="modal-input" placeholder="https://..."></div>
-                    <div class="modal-input-group"><label class="modal-label">Banner Image URL</label><input id="edit-banner-url" type="text" class="modal-input" placeholder="https://..."></div>
-                    <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem;"><button class="btn btn-ghost btn-sm" onclick="closeEditProfile()">Cancel</button><button class="btn btn-primary btn-sm" onclick="saveProfile()">Save</button></div>
-                </div>
+                <div class="modal-content"><div class="modal-header"><h2 class="modal-title">Edit Profile</h2><button class="modal-close" onclick="closeEditProfile()">&times;</button></div>
+                <div class="modal-input-group"><label class="modal-label">Full Name</label><input id="edit-fullname" type="text" class="modal-input"></div>
+                <div class="modal-input-group"><label class="modal-label">Bio</label><textarea id="edit-bio" class="banner-input"></textarea></div>
+                <div class="modal-input-group"><label class="modal-label">Avatar Image URL</label><input id="edit-avatar-url" type="text" class="modal-input" placeholder="https://..."></div>
+                <div class="modal-input-group"><label class="modal-label">Banner Image URL</label><input id="edit-banner-url" type="text" class="modal-input" placeholder="https://..."></div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem;"><button class="btn btn-ghost btn-sm" onclick="closeEditProfile()">Cancel</button><button class="btn btn-primary btn-sm" onclick="saveProfile()">Save</button></div></div>
             </div>
             <div id="quote-modal" class="modal-overlay" style="display: none;">
-                <div class="modal-content">
-                    <div class="modal-header"><h2 class="modal-title">Quote Post</h2><button class="modal-close" onclick="closeQuoteModal()">&times;</button></div>
-                    <textarea id="quote-content" class="modal-input modal-textarea" placeholder="Add a comment..." rows="4"></textarea>
-                    <div style="display: flex; justify-content: flex-end; margin-top: 1rem;"><button class="btn btn-primary btn-sm" onclick="submitQuote()">Post</button></div>
-                </div>
+                <div class="modal-content"><div class="modal-header"><h2 class="modal-title">Quote Post</h2><button class="modal-close" onclick="closeQuoteModal()">&times;</button></div>
+                <textarea id="quote-content" class="modal-input modal-textarea" placeholder="Add a comment..." rows="4"></textarea>
+                <div style="display: flex; justify-content: flex-end; margin-top: 1rem;"><button class="btn btn-primary btn-sm" onclick="submitQuote()">Post</button></div></div>
             </div>
 
             <aside class="left-sidebar">
@@ -388,7 +410,20 @@ function renderLayout(centerContent, activeNav = 'home') {
                     ` : ''}
                 </nav>
                 ${currentUser ? `
-                    <div class="user-card" onclick="logout()"><img src="${avatarUrl}" class="post-avatar" style="width: 40px; height: 40px;"><div style="overflow: hidden;"><div style="font-weight: 700; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${currentUser?.full_name}</div><div style="font-size: 0.8rem; color: var(--text-muted);" class="font-mono">@${currentUser.username}</div></div></div>
+                    <div style="position: relative; margin-bottom: 1rem;">
+                        <div class="user-card" onclick="toggleNotifDropdown(event)">
+                            <img src="${avatarUrl}" class="post-avatar" style="width: 40px; height: 40px;">
+                            <div style="overflow: hidden;"><div style="font-weight: 700; font-size: 0.9rem;">${currentUser?.full_name}</div><div style="font-size: 0.8rem; color: var(--text-muted);" class="font-mono">Notifications</div></div>
+                            <svg style="width: 20px; height: 20px; color: var(--accent-primary);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                        </div>
+                        <div id="notif-dropdown" class="notif-dropdown"></div>
+                    </div>
+                    <div class="user-card" onclick="logout()" style="margin-top: 0;">
+                        <div style="width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;">
+                            <svg style="width: 24px; height: 24px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+                        </div>
+                        <div style="overflow: hidden;"><div style="font-weight: 700; font-size: 0.9rem;">Logout</div></div>
+                    </div>
                 ` : `<div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: auto; padding: 0 0.5rem;"><button onclick="loginWithGithub()" class="btn btn-ghost btn-sm" style="width: 100%; justify-content: center;">GitHub</button><button onclick="loginWithGitlab()" class="btn btn-ghost btn-sm" style="width: 100%; justify-content: center;">GitLab</button></div>`}
             </aside>
 
@@ -396,27 +431,18 @@ function renderLayout(centerContent, activeNav = 'home') {
 
             <aside class="right-sidebar">
                 <div style="position: relative;">
-                    <input type="text" class="search-box" placeholder="Search @users..." oninput="handleSearchInput(event)">
+                    <input type="text" class="search-box" placeholder="Search @users..." oninput="handleSearchInput(event)" onclick="event.stopPropagation()">
                     <div id="search-results" class="search-results" style="display: none;"></div>
                 </div>
-                <div class="widget">
-                    <h3 class="widget-title">🔥 Trending Repos</h3>
-                    <div id="trending-repos"><div class="trend-item">Loading GitHub repos...</div></div>
-                </div>
-                <div class="widget">
-                    <h3 class="widget-title">💡 AI Dev Tip</h3>
-                    <p id="dev-tip-text" style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5;">${devTip}</p>
-                </div>
+                <div class="widget"><h3 class="widget-title">🔥 Trending Repos</h3><div id="trending-repos"><div class="trend-item">Loading GitHub repos...</div></div></div>
+                <div class="widget"><h3 class="widget-title">💡 AI Dev Tip</h3><p id="dev-tip-text" style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5;">${devTip}</p></div>
             </aside>
         </div>
     `;
 }
 
 async function fetchFeedPosts() {
-    return await sb.from('csns_posts').select(`
-        *, csns_profiles:user_id (*), csns_post_repos (*), csns_likes (user_id),
-        csns_bookmarks (user_id), parent:parent_post_id (*, csns_profiles:user_id (*))
-    `).order('created_at', { ascending: false });
+    return await sb.from('csns_posts').select(`*, csns_profiles:user_id (*), csns_post_repos (*), csns_likes (user_id), csns_bookmarks (user_id), parent:parent_post_id (*, csns_profiles:user_id (*))`).order('created_at', { ascending: false });
 }
 
 async function renderFeed() {
@@ -453,18 +479,12 @@ async function renderSaved() {
     if (!currentUser) { app.innerHTML = renderLayout('<div class="empty-state">Sign in to view saved posts.</div>', 'saved'); return; }
     const { data: bookmarks } = await sb.from('csns_bookmarks').select('post_id').eq('user_id', currentUser.id);
     const postIds = bookmarks.map(b => b.post_id);
-    
     let posts = [];
     if (postIds.length > 0) {
-        const { data } = await fetchFeedPosts().then(res => res).catch(() => ({ data: [] }));
+        const { data } = await fetchFeedPosts();
         posts = data.filter(p => postIds.includes(p.id));
     }
-    
-    const centerContent = `
-        <header class="page-header"><h1 class="page-title">Saved Posts</h1></header>
-        <div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No saved posts yet.</div>'}</div>
-    `;
-    app.innerHTML = renderLayout(centerContent, 'saved');
+    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Saved Posts</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No saved posts yet.</div>'}</div>`, 'saved');
     applySyntaxHighlighting();
 }
 
@@ -477,19 +497,17 @@ async function renderFollowing() {
         const res = await fetchFeedPosts();
         posts = res.data.filter(p => followingIds.includes(p.user_id));
     }
-    const centerContent = `<header class="page-header"><h1 class="page-title">Following</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">Feed is empty.</div>'}</div>`;
-    app.innerHTML = renderLayout(centerContent, 'following');
+    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Following</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">Feed is empty.</div>'}</div>`, 'following');
     applySyntaxHighlighting();
 }
 
 async function renderNews() {
-    const centerContent = `<header class="page-header"><h1 class="page-title">Dev News</h1></header><div id="news-feed" style="padding: 1rem; text-align: center; color: var(--text-muted);">Fetching top tech articles...</div>`;
-    app.innerHTML = renderLayout(centerContent, 'news');
+    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Dev News</h1></header><div id="news-feed" style="padding: 1rem; text-align: center; color: var(--text-muted);">Fetching top tech articles...</div>`, 'news');
     try {
         const res = await fetch('https://dev.to/api/articles?per_page=20&top=7');
         const items = await res.json();
         document.getElementById('news-feed').innerHTML = items.map(item => `
-            <a href="${item.url}" target="_blank" class="news-item">${item.cover_image ? `<img src="${item.cover_image}" class="news-image" alt="${item.title}">` : ''}<div class="news-content"><div class="news-title">${item.title}</div><div class="news-meta"><span class="news-tag">#${item.tag_list[0] || 'dev'}</span><span>by ${item.user.name}</span><span>💬 ${item.comments_count}</span><span>❤️ ${item.public_reactions_count}</span></div></div></a>
+            <a href="${item.url}" target="_blank" class="news-item">${item.cover_image ? `<img src="${item.cover_image}" class="news-image" alt="${item.title}">` : ''}<div class="news-content"><div class="news-title">${item.title}</div><div class="news-meta"><span class="news-tag">#${item.tag_list[0] || 'dev'}</span><span>by ${item.user.name}</span></div></div></a>
         `).join('');
     } catch (e) { document.getElementById('news-feed').innerHTML = '<div style="padding: 2rem; text-align: center;">Failed to load news.</div>'; }
 }
@@ -509,8 +527,7 @@ async function renderMessages() {
         const otherProfile = conversationList.find(c => c.user.id === activeChatUser)?.user || (await sb.from('csns_profiles').select('*').eq('id', activeChatUser).single()).data;
         chatHtml = `<div class="chat-window"><div class="chat-header"><img src="${otherProfile?.avatar_url || `https://ui-avatars.com/api/?name=${otherProfile?.username}`}" class="post-avatar" style="width: 32px; height: 32px;"><span>${otherProfile?.full_name || otherProfile?.username}</span></div><div class="chat-messages">${chatMessages.map(msg => `<div class="message-bubble ${msg.sender_id === currentUser.id ? 'message-sent' : 'message-received'}">${msg.content}</div>`).join('')}</div><div class="chat-input-area"><input id="dm-input" class="chat-input" placeholder="Type a message..." onkeypress="if(event.key==='Enter') sendDm()"><button onclick="sendDm()" class="btn btn-primary btn-sm">Send</button></div></div>`;
     }
-    const centerContent = `<header class="page-header"><h1 class="page-title">Messages</h1></header><div class="chat-layout"><div class="conversation-list">${conversationList.length > 0 ? conversationList.map(c => `<div class="conversation-item ${activeChatUser === c.user.id ? 'active' : ''}" onclick="selectConversation('${c.user.id}')"><img src="${c.user.avatar_url || `https://ui-avatars.com/api/?name=${c.user.username}`}" class="post-avatar" style="width: 40px; height: 40px;"><div style="overflow: hidden;"><div style="font-weight: 700; font-size: 0.9rem;">${c.user.full_name || c.user.username}</div><div style="font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${c.lastMessage.content}</div></div></div>`).join('') : '<div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">No conversations.</div>'}</div>${chatHtml}</div>`;
-    app.innerHTML = renderLayout(centerContent, 'messages');
+    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Messages</h1></header><div class="chat-layout"><div class="conversation-list">${conversationList.length > 0 ? conversationList.map(c => `<div class="conversation-item ${activeChatUser === c.user.id ? 'active' : ''}" onclick="selectConversation('${c.user.id}')"><img src="${c.user.avatar_url || `https://ui-avatars.com/api/?name=${c.user.username}`}" class="post-avatar" style="width: 40px; height: 40px;"><div style="overflow: hidden;"><div style="font-weight: 700; font-size: 0.9rem;">${c.user.full_name || c.user.username}</div><div style="font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${c.lastMessage.content}</div></div></div>`).join('') : '<div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">No conversations.</div>'}</div>${chatHtml}</div>`, 'messages');
 }
 
 async function renderProfile(profileId) {
@@ -520,8 +537,8 @@ async function renderProfile(profileId) {
     let isFollowing = false;
     if (currentUser) { const { data } = await sb.from('csns_follows').select('*').match({ follower_id: currentUser.id, following_id: profileId }); isFollowing = data.length > 0; }
     
-    // Fetch GitHub Score
     let badgeHtml = '';
+    let ghStatsHtml = '';
     if (profile.github_url) {
         const ghUsername = profile.github_url.split('github.com/')[1];
         if (ghUsername) {
@@ -533,6 +550,14 @@ async function renderProfile(profileId) {
                 if (score > 50) { badgeClass = 'badge-mid'; badgeText = 'Mid Dev'; }
                 if (score > 200) { badgeClass = 'badge-senior'; badgeText = 'Senior Dev'; }
                 badgeHtml = `<span class="dev-badge ${badgeClass}">${badgeText}</span>`;
+                
+                ghStatsHtml = `
+                    <div class="profile-stats-row">
+                        <div class="profile-stat">${ghData.public_repos || 0}<span> Repositories</span></div>
+                        <div class="profile-stat">${ghData.followers || 0}<span> Followers</span></div>
+                        <div class="profile-stat">${ghData.following || 0}<span> Following</span></div>
+                    </div>
+                `;
             } catch(e) {}
         }
     }
@@ -544,7 +569,12 @@ async function renderProfile(profileId) {
             <div class="profile-avatar-wrapper"><img src="${profile.avatar_url || `https://ui-avatars.com/api/?name=${profile.username}`}" class="profile-avatar-main">
             ${currentUser && currentUser.id !== profileId ? `<div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;"><button onclick="handleFollow('${profileId}', ${isFollowing})" class="btn ${isFollowing ? 'btn-ghost' : 'btn-primary'} btn-sm">${isFollowing ? 'Following' : 'Follow'}</button><button onclick="startDm('${profileId}')" class="btn btn-ghost btn-sm"><svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>Message</button></div>` : currentUser && currentUser.id === profileId ? `<button onclick="showEditProfile()" class="btn btn-ghost btn-sm" style="margin-bottom: 1rem;">Edit Profile</button>` : ''}
             </div>
-            <div class="profile-info"><h2 style="font-size: 1.5rem; font-weight: 800;">${profile.full_name || profile.username} ${badgeHtml}</h2><p style="color: var(--text-muted);" class="font-mono">@${profile.username}</p>${profile.bio ? `<p class="profile-bio">${profile.bio}</p>` : '<p class="profile-bio" style="font-style: italic; color: var(--text-muted);">No bio yet.</p>'}</div>
+            <div class="profile-info">
+                <h2 style="font-size: 1.5rem; font-weight: 800;">${profile.full_name || profile.username} ${badgeHtml}</h2>
+                <p style="color: var(--text-muted);" class="font-mono">@${profile.username}</p>
+                ${profile.bio ? `<p class="profile-bio">${profile.bio}</p>` : '<p class="profile-bio" style="font-style: italic; color: var(--text-muted);">No bio yet.</p>'}
+            </div>
+            ${ghStatsHtml}
         </div>
         <div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No posts yet.</div>'}</div>
     `;
@@ -554,10 +584,7 @@ async function renderProfile(profileId) {
 
 function applySyntaxHighlighting() {
     document.querySelectorAll('pre code').forEach(block => {
-        if (!block.dataset.highlighted) {
-            hljs.highlightElement(block);
-            block.dataset.highlighted = 'true';
-        }
+        if (!block.dataset.highlighted) { hljs.highlightElement(block); block.dataset.highlighted = 'true'; }
     });
 }
 
@@ -579,7 +606,7 @@ function renderPostCard(post) {
 
     return `
         <div class="post-card fade-in" onclick="currentView='profile_${post.user_id}'; renderApp()">
-            ${post.is_repost ? `<div style="margin-left: 2rem; font-size: 0.8rem; color: var(--text-muted);">🔁 Reposted by @${post.csns_profiles?.username}</div>` : ''}
+            ${post.is_repost ? `<div style="margin-left: 2rem; font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.5rem;"><svg style="width: 14px; height: 14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg> Reposted by @${post.csns_profiles?.username}</div>` : ''}
             <div style="display: flex; gap: 1rem;" onclick="event.stopPropagation()">
                 <img src="${post.csns_profiles?.avatar_url || `https://ui-avatars.com/api/?name=${post.csns_profiles?.username}`}" class="post-avatar" onclick="currentView='profile_${post.user_id}'; renderApp()">
                 <div style="flex: 1;">
@@ -606,7 +633,7 @@ function renderPostCard(post) {
                         <button onclick="toggleComments('${post.id}')" class="action-btn"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg></button>
                         <button onclick="showQuoteModal('${post.id}', false)" class="action-btn"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg></button>
                         <button onclick="showQuoteModal('${post.id}', true)" class="action-btn"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></button>
-                        <button onclick="handleLike('${post.id}', ${isLiked})" class="action-btn ${isLiked ? 'liked' : ''}"><svg style="width: 18px; height: 18px;" fill="${isLiked ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg><span>${post.csns_likes.length}</span></button>
+                        <button onclick="handleLike('${post.id}', ${isLiked}, '${post.user_id}')" class="action-btn ${isLiked ? 'liked' : ''}"><svg style="width: 18px; height: 18px;" fill="${isLiked ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg><span>${post.csns_likes.length}</span></button>
                         <button onclick="handleBookmark('${post.id}', ${isSaved})" class="action-btn ${isSaved ? 'saved' : ''}"><svg style="width: 18px; height: 18px;" fill="${isSaved ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg></button>
                     </div>
                     <div id="comments-${post.id}" class="comment-section" style="display: none;"></div>
