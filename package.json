@@ -1,0 +1,25 @@
+{
+  "name": "codesns",
+  "version": "1.0.0",
+  "description": "Twitter for programmers",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "build": {
+    "appId": "com.codesns.app",
+    "productName": "CodeSNS",
+    "files": ["index.html", "app.js", "styles.css", "main.js"],
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "deb"
+    }
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  }
+}
