@@ -14,6 +14,7 @@ let currentUser = null;
 let currentView = 'feed'; 
 let selectedImageFile = null;
 let devTip = "Use `git commit --amend` to modify your most recent commit without creating a new one.";
+let activeChatUser = null;
 
 async function fetchDevTip() {
     try {
@@ -209,9 +210,42 @@ window.saveProfile = async function() {
     renderApp();
 }
 
+window.startDm = function(userId) {
+    if (!currentUser) return;
+    activeChatUser = userId;
+    currentView = 'messages';
+    renderApp();
+}
+
+window.selectConversation = function(userId) {
+    activeChatUser = userId;
+    renderMessages();
+}
+
+window.sendDm = async function() {
+    const input = document.getElementById('dm-input');
+    const content = input.value;
+    if (!content.trim() || !activeChatUser) return;
+    
+    await sb.from('csns_messages').insert({
+        sender_id: currentUser.id,
+        receiver_id: activeChatUser,
+        content: content
+    });
+    
+    input.value = '';
+    renderMessages();
+}
+
 async function renderApp() {
     if (currentView.startsWith('profile_')) {
         await renderProfile(currentView.split('_')[1]);
+    } else if (currentView === 'news') {
+        await renderNews();
+    } else if (currentView === 'following') {
+        await renderFollowing();
+    } else if (currentView === 'messages') {
+        await renderMessages();
     } else {
         await renderFeed();
     }
@@ -258,6 +292,18 @@ function renderLayout(centerContent, activeNav = 'home') {
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
                         <span>Home</span>
                     </a>
+                    <a class="nav-item ${activeNav === 'following' ? 'active' : ''}" onclick="currentView='following'; renderApp()">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                        <span>Following</span>
+                    </a>
+                    <a class="nav-item ${activeNav === 'news' ? 'active' : ''}" onclick="currentView='news'; renderApp()">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" /></svg>
+                        <span>Dev News</span>
+                    </a>
+                    <a class="nav-item ${activeNav === 'messages' ? 'active' : ''}" onclick="currentView='messages'; renderApp()">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                        <span>Messages</span>
+                    </a>
                     ${currentUser ? `
                         <a class="nav-item ${activeNav === 'profile' ? 'active' : ''}" onclick="currentView='profile_${currentUser.id}'; renderApp()">
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
@@ -303,9 +349,7 @@ function renderLayout(centerContent, activeNav = 'home') {
                 </div>
                 <div class="widget">
                     <h3 class="widget-title">💡 AI Dev Tip</h3>
-                    <p id="dev-tip-text" style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5;">
-                        ${devTip}
-                    </p>
+                    <p id="dev-tip-text" style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5;">${devTip}</p>
                 </div>
             </aside>
         </div>
@@ -316,14 +360,12 @@ async function renderFeed() {
     const { data: posts } = await sb.from('csns_posts').select(`*, csns_profiles:user_id (*), csns_post_repos (*), csns_likes (user_id)`).order('created_at', { ascending: false });
     const centerContent = `
         <header class="page-header"><h1 class="page-title">Home</h1></header>
-
         ${currentUser ? `
             <div class="composer fade-in">
                 <img src="${currentUser.avatar_url || `https://ui-avatars.com/api/?name=${currentUser.username}`}" class="post-avatar">
                 <div style="flex: 1;">
                     <textarea id="post-content" placeholder="What did you code today?" rows="3"></textarea>
                     <input id="repo-url" type="text" placeholder="Attach GitHub/GitLab repo link (optional)">
-                    
                     <div class="upload-btn-wrapper">
                         <label class="upload-btn">
                             <svg style="width: 20px; height: 20px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
@@ -332,7 +374,6 @@ async function renderFeed() {
                         </label>
                         <img id="image-preview" class="image-preview" style="display: none;" />
                     </div>
-                    
                     <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
                         <button onclick="handlePost()" class="btn btn-primary">Post Code</button>
                     </div>
@@ -348,12 +389,130 @@ async function renderFeed() {
                 </div>
             </div>
         `}
-
-        <div id="feed">
-            ${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No posts yet. Be the first to share!</div>'}
-        </div>
+        <div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No posts yet. Be the first to share!</div>'}</div>
     `;
     app.innerHTML = renderLayout(centerContent, 'home');
+}
+
+async function renderFollowing() {
+    if (!currentUser) {
+        app.innerHTML = renderLayout('<div class="empty-state">Please sign in to see your following feed.</div>', 'following');
+        return;
+    }
+    
+    const { data: follows } = await sb.from('csns_follows').select('following_id').eq('follower_id', currentUser.id);
+    const followingIds = follows.map(f => f.following_id);
+    
+    let posts = [];
+    if (followingIds.length > 0) {
+        const { data } = await sb.from('csns_posts').select(`*, csns_profiles:user_id (*), csns_post_repos (*), csns_likes (user_id)`).in('user_id', followingIds).order('created_at', { ascending: false });
+        posts = data || [];
+    }
+
+    const centerContent = `
+        <header class="page-header"><h1 class="page-title">Following</h1></header>
+        <div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">Your following feed is empty. Go follow some devs!</div>'}</div>
+    `;
+    app.innerHTML = renderLayout(centerContent, 'following');
+}
+
+async function renderNews() {
+    const centerContent = `
+        <header class="page-header"><h1 class="page-title">Dev News</h1></header>
+        <div id="news-feed" style="padding: 1rem; text-align: center; color: var(--text-muted);">Fetching top stories from Hacker News...</div>
+    `;
+    app.innerHTML = renderLayout(centerContent, 'news');
+    
+    try {
+        const res = await fetch('https://hacker-news.firebaseio.com/v0/topstories.json');
+        const ids = (await res.json()).slice(0, 20);
+        const items = await Promise.all(ids.map(id => fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`).then(r => r.json())));
+        
+        const html = items.map(item => `
+            <a href="${item.url || `https://news.ycombinator.com/item?id=${item.id}`}" target="_blank" class="news-item">
+                <div class="news-title">${item.title}</div>
+                <div class="news-meta">
+                    <span>⬆️ ${item.score}</span>
+                    <span>💬 ${item.descendants || 0}</span>
+                    <span>by ${item.by}</span>
+                </div>
+            </a>
+        `).join('');
+        
+        document.getElementById('news-feed').innerHTML = html;
+    } catch (e) {
+        document.getElementById('news-feed').innerHTML = '<div style="padding: 2rem; text-align: center; color: var(--text-muted);">Failed to load news.</div>';
+    }
+}
+
+async function renderMessages() {
+    if (!currentUser) {
+        app.innerHTML = renderLayout('<div class="empty-state">Please sign in to view messages.</div>', 'messages');
+        return;
+    }
+
+    const { data: messages } = await sb.from('csns_messages')
+        .select('*, sender:sender_id(*), receiver:receiver_id(*)')
+        .or(`sender_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}`)
+        .order('created_at', { ascending: false });
+
+    const conversations = {};
+    messages.forEach(msg => {
+        const otherUser = msg.sender_id === currentUser.id ? msg.receiver : msg.sender;
+        if (!conversations[otherUser.id]) {
+            conversations[otherUser.id] = { user: otherUser, lastMessage: msg };
+        }
+    });
+
+    const conversationList = Object.values(conversations).sort((a, b) => new Date(b.lastMessage.created_at) - new Date(a.lastMessage.created_at));
+
+    let chatHtml = '<div class="empty-state"><h3>Select a conversation</h3><p>Or start a new one from a user's profile.</p></div>';
+    
+    if (activeChatUser) {
+        const { data: chatMessages } = await sb.from('csns_messages')
+            .select('*, sender:sender_id(*)')
+            .or(`and(sender_id.eq.${currentUser.id},receiver_id.eq.${activeChatUser}),and(sender_id.eq.${activeChatUser},receiver_id.eq.${currentUser.id})`)
+            .order('created_at', { ascending: true });
+        
+        const otherProfile = conversationList.find(c => c.user.id === activeChatUser)?.user || (await sb.from('csns_profiles').select('*').eq('id', activeChatUser).single()).data;
+
+        chatHtml = `
+            <div class="chat-window">
+                <div class="chat-header">
+                    <img src="${otherProfile?.avatar_url || `https://ui-avatars.com/api/?name=${otherProfile?.username}`}" class="post-avatar" style="width: 32px; height: 32px;">
+                    <span>${otherProfile?.full_name || otherProfile?.username}</span>
+                </div>
+                <div class="chat-messages">
+                    ${chatMessages.map(msg => `
+                        <div class="message-bubble ${msg.sender_id === currentUser.id ? 'message-sent' : 'message-received'}">${msg.content}</div>
+                    `).join('')}
+                </div>
+                <div class="chat-input-area">
+                    <input id="dm-input" class="chat-input" placeholder="Type a message..." onkeypress="if(event.key==='Enter') sendDm()">
+                    <button onclick="sendDm()" class="btn btn-primary btn-sm">Send</button>
+                </div>
+            </div>
+        `;
+    }
+
+    const centerContent = `
+        <header class="page-header"><h1 class="page-title">Messages</h1></header>
+        <div class="chat-layout">
+            <div class="conversation-list">
+                ${conversationList.length > 0 ? conversationList.map(c => `
+                    <div class="conversation-item ${activeChatUser === c.user.id ? 'active' : ''}" onclick="selectConversation('${c.user.id}')">
+                        <img src="${c.user.avatar_url || `https://ui-avatars.com/api/?name=${c.user.username}`}" class="post-avatar" style="width: 40px; height: 40px;">
+                        <div style="overflow: hidden;">
+                            <div style="font-weight: 700; font-size: 0.9rem;">${c.user.full_name || c.user.username}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${c.lastMessage.content}</div>
+                        </div>
+                    </div>
+                `).join('') : '<div style="padding: 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.9rem;">No conversations yet.</div>'}
+            </div>
+            ${chatHtml}
+        </div>
+    `;
+    app.innerHTML = renderLayout(centerContent, 'messages');
 }
 
 async function renderProfile(profileId) {
@@ -382,9 +541,15 @@ async function renderProfile(profileId) {
             <div class="profile-avatar-wrapper">
                 <img src="${profile.avatar_url || `https://ui-avatars.com/api/?name=${profile.username}`}" class="profile-avatar-main">
                 ${currentUser && currentUser.id !== profileId ? `
-                    <button onclick="handleFollow('${profileId}', ${isFollowing})" class="btn ${isFollowing ? 'btn-ghost' : 'btn-primary'} btn-sm" style="margin-bottom: 1rem;">
-                        ${isFollowing ? 'Following' : 'Follow'}
-                    </button>
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                        <button onclick="handleFollow('${profileId}', ${isFollowing})" class="btn ${isFollowing ? 'btn-ghost' : 'btn-primary'} btn-sm">
+                            ${isFollowing ? 'Following' : 'Follow'}
+                        </button>
+                        <button onclick="startDm('${profileId}')" class="btn btn-ghost btn-sm">
+                            <svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
+                            Message
+                        </button>
+                    </div>
                 ` : currentUser && currentUser.id === profileId ? `
                     <button onclick="showEditProfile()" class="btn btn-ghost btn-sm" style="margin-bottom: 1rem;">Edit Profile</button>
                 ` : ''}
