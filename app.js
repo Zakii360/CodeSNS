@@ -536,13 +536,13 @@ function renderLayout(centerContent, activeNav = 'home') {
                     <div style="position: relative; margin-bottom: 1rem;">
                         <div class="user-card" onclick="toggleNotifDropdown(event)">
                             <img src="${avatarUrl}" class="post-avatar" style="width: 40px; height: 40px;">
-                            <div style="overflow: hidden;"><div style="font-weight: 700; font-size: 0.9rem;">${currentUser?.full_name}</div><div style="font-size: 0.8rem; color: var(--text-muted);" class="font-mono">Notifications</div></div>
+                            <div style="overflow: hidden;"><div style="font-weight: 700; font-size: 0.9rem;">${currentUser?.full_name}</div><div style="font-size: 0.8rem; color: var(--text-muted);" class="font-mono">Alerts</div></div>
                             <svg style="width: 20px; height: 20px; color: var(--accent-primary);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
                         </div>
                         <div id="notif-dropdown" class="notif-dropdown"></div>
                     </div>
                     <a class="nav-item logout-btn" onclick="logout()">
-                        <svg style="width: 24px; height: 24px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+                        <svg style="width: 24px; height: 24px;" fill="none; stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
                         <span>Logout</span>
                     </a>
                 ` : `<div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: auto; padding: 0 0.5rem;"><button onclick="loginWithGithub()" class="btn btn-ghost btn-sm" style="width: 100%; justify-content: center;">GitHub</button><button onclick="loginWithGitlab()" class="btn btn-ghost btn-sm" style="width: 100%; justify-content: center;">GitLab</button></div>`}
@@ -646,13 +646,14 @@ async function renderSaved() {
     fetchTrendingRepos(); applySyntaxHighlighting(); initRepoStats();
 }
 
+// FIX: Syntax error was here, missing parenthesis in .join('')
 async function renderFollowing() {
     if (!currentUser) { app.innerHTML = renderLayout('<div class="empty-state">Sign in to see following feed.</div>', 'following'); return; }
     const { data: follows } = await sb.from('csns_follows').select('following_id').eq('follower_id', currentUser.id);
     const followingIds = follows.map(f => f.following_id);
     let posts = [];
     if (followingIds.length > 0) { const res = await fetchFeedPosts(); posts = res.data.filter(p => followingIds.includes(p.user_id)); }
-    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Following</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('() || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">Feed is empty.</div>'}</div>`, 'following');
+    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Following</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">Feed is empty.</div>'}</div>`, 'following');
     fetchTrendingRepos(); applySyntaxHighlighting(); initRepoStats();
 }
 
@@ -855,7 +856,7 @@ function renderPostCard(post) {
                         <span class="post-username">@${post.csns_profiles?.username}</span>
                         <span style="color: var(--text-muted); font-size: 0.9rem;">• ${timeAgo}</span>
                     </div>
-                    ${post.post_type !== 'post' ? `<div class="post-tag tag-${post.post_type}" style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; margin-bottom: 0.5rem; text-transform: uppercase; background: rgba(168, 85, 247, 0.2); color: #a855f7;">${post.post_type}</div>` : ''}
+                    ${post.post_type !== 'post' ? `<div class="post-tag tag-${post.post_type}">${post.post_type}</div>` : ''}
                     <div class="post-content">${contentHtml}</div>
                     ${parentHtml}
                     ${post.image_url ? `<img src="${post.image_url}" class="post-image" alt="Post image">` : ''}
