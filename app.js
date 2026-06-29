@@ -20,7 +20,6 @@ let activeFeedTab = 'foryou';
 let activeTag = null;
 let linkPreviewCache = {};
 
-// KEYBOARD SHORTCUTS
 document.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     if (e.key === '/' || (e.metaKey && e.key === 'k') || (e.ctrlKey && e.key === 'k')) {
@@ -156,7 +155,6 @@ async function initRepoStats() {
     }
 }
 
-// LINK PREVIEWS
 window.fetchLinkPreview = async function(url, postId) {
     if (linkPreviewCache[url]) {
         const el = document.getElementById(`lp-${postId}`);
@@ -433,7 +431,6 @@ window.toggleTheme = function() {
     localStorage.setItem('theme', document.body.classList.contains('light-theme') ? 'light' : 'dark');
 }
 
-// VERIFICATION FLOW
 window.showVerifyModal = function() {
     document.getElementById('verify-modal').style.display = 'flex';
     document.getElementById('verify-step-1').style.display = 'block';
@@ -504,7 +501,6 @@ window.confirmVerificationCode = async function() {
     }
 }
 
-// COLLECTIONS
 window.showCollections = async function() {
     if (!currentUser) return;
     const { data: collections } = await sb.from('csns_collections').select('*').eq('user_id', currentUser.id);
@@ -533,7 +529,6 @@ window.createCollection = async function() {
     showCollections();
 }
 
-// DOMAIN VERIFICATION
 window.updateDnsHost = function(domain) { if (domain && domain.trim() !== '') { document.getElementById('dns-info').style.display = 'block'; document.getElementById('dns-host').innerText = `_codesns.${domain}`; } else { document.getElementById('dns-info').style.display = 'none'; } }
 window.setVerifyMethod = function(method) { verifyMethod = method; document.querySelectorAll('.verify-method-btn').forEach(btn => btn.classList.remove('active')); event.target.classList.add('active'); document.getElementById('dns-instructions').style.display = method === 'dns' ? 'block' : 'none'; document.getElementById('html-instructions').style.display = method === 'html' ? 'block' : 'none'; }
 window.copyDnsValue = function(type = 'dns') { const value = document.getElementById(type === 'html' ? 'html-txt' : 'dns-txt').innerText; navigator.clipboard.writeText(value); alert('Copied to clipboard!'); }
@@ -637,7 +632,6 @@ function renderLayout(centerContent, activeNav = 'home') {
     const avatarUrl = currentUser?.avatar_url || `https://ui-avatars.com/api/?name=${currentUser?.username || 'Guest'}`;
     return `
         <div class="main-layout" onclick="document.getElementById('notif-dropdown')?.classList.remove('active'); document.getElementById('search-results')?.style.setProperty('display', 'none')">
-            <!-- EDIT PROFILE MODAL -->
             <div id="edit-modal" class="modal-overlay" style="display: none;">
                 <div class="modal-content" style="max-height: 90vh; overflow-y: auto;">
                     <div class="modal-header"><h2 class="modal-title">Edit Profile</h2><button class="modal-close" onclick="closeEditProfile()">&times;</button></div>
@@ -661,11 +655,7 @@ function renderLayout(centerContent, activeNav = 'home') {
                     <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem;"><button class="btn btn-ghost btn-sm" onclick="closeEditProfile()">Cancel</button><button class="btn btn-primary btn-sm" onclick="saveProfile()">Save</button></div>
                 </div>
             </div>
-            
-            <!-- QUOTE MODAL -->
             <div id="quote-modal" class="modal-overlay" style="display: none;"><div class="modal-content"><div class="modal-header"><h2 class="modal-title">Quote Post</h2><button class="modal-close" onclick="closeQuoteModal()">&times;</button></div><textarea id="quote-content" class="modal-input modal-textarea" placeholder="Add a comment..." rows="4"></textarea><div style="display: flex; justify-content: flex-end; margin-top: 1rem;"><button class="btn btn-primary btn-sm" onclick="submitQuote()">Post</button></div></div></div>
-
-            <!-- VERIFICATION MODAL -->
             <div id="verify-modal" class="modal-overlay" style="display: none;">
                 <div class="modal-content">
                     <div class="modal-header"><h2 class="modal-title">Get Verified</h2><button class="modal-close" onclick="closeVerifyModal()">&times;</button></div>
@@ -715,7 +705,7 @@ function renderLayout(centerContent, activeNav = 'home') {
                         <div id="notif-dropdown" class="notif-dropdown"></div>
                     </div>
                     <a class="nav-item logout-btn" onclick="logout()">
-                        <svg style="width: 24px; height: 24px;" fill="none; stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+                        <svg style="width: 24px; height: 24px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
                         <span>Logout</span>
                     </a>
                 ` : `<div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: auto; padding: 0 0.5rem;"><button onclick="loginWithGithub()" class="btn btn-ghost btn-sm" style="width: 100%; justify-content: center;">GitHub</button><button onclick="loginWithGitlab()" class="btn btn-ghost btn-sm" style="width: 100%; justify-content: center;">GitLab</button></div>`}
@@ -839,7 +829,7 @@ async function renderFollowing() {
     const followingIds = follows.map(f => f.following_id);
     let posts = [];
     if (followingIds.length > 0) { const res = await fetchFeedPosts(); posts = res.data.filter(p => followingIds.includes(p.user_id)); }
-    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Following</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('() || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">Feed is empty.</div>'}</div>`, 'following');
+    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Following</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">Feed is empty.</div>'}</div>`, 'following');
     fetchTrendingRepos(); applySyntaxHighlighting(); initRepoStats();
 }
 
@@ -880,7 +870,17 @@ async function renderProfile(profileId) {
     let isFollowing = false;
     if (currentUser) { const { data } = await sb.from('csns_follows').select('*').match({ follower_id: currentUser.id, following_id: profileId }); isFollowing = data.length > 0; }
     
-    let badgeHtml = ''; let ghStatsHtml = ''; let achievementsHtml = ''; let totalLikes = 0; let totalStars = 0;
+    // Get CodeSNS Stats
+    const { count: csnsFollowers } = await sb.from('csns_follows').select('*', { count: 'exact', head: true }).eq('following_id', profileId);
+    const { count: csnsFollowing } = await sb.from('csns_follows').select('*', { count: 'exact', head: true }).eq('follower_id', profileId);
+    
+    let badgeHtml = ''; 
+    let achievementsHtml = ''; 
+    let totalLikes = 0; 
+    let totalStars = 0;
+    let ghFollowers = 0;
+    let ghRepos = 0;
+
     posts.forEach(p => totalLikes += p.csns_likes.length);
 
     let achievements = [];
@@ -901,6 +901,9 @@ async function renderProfile(profileId) {
             try {
                 const ghRes = await fetch(`https://api.github.com/users/${ghUsername}`);
                 const ghData = await ghRes.json();
+                ghFollowers = ghData.followers || 0;
+                ghRepos = ghData.public_repos || 0;
+
                 const reposRes = await fetch(`https://api.github.com/users/${ghUsername}/repos?per_page=100`);
                 const reposData = await reposRes.json();
                 if (Array.isArray(reposData)) totalStars = reposData.reduce((acc, r) => acc + r.stargazers_count, 0);
@@ -911,8 +914,6 @@ async function renderProfile(profileId) {
                 if (score > 200) { badgeClass = 'badge-senior'; badgeText = 'Senior Dev'; }
                 badgeHtml = `<span class="dev-badge ${badgeClass}">${badgeText}</span>`;
                 
-                ghStatsHtml = `<div class="profile-stats-row"><div class="profile-stat">${ghData.public_repos || 0}<span> Repos</span></div><div class="profile-stat">${totalStars}<span> Stars</span></div><div class="profile-stat">${ghData.followers || 0}<span> Followers</span></div></div>`;
-
                 if (ghData.company) metaItems.push(`<div class="profile-meta-item"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg> ${ghData.company}</div>`);
                 if (ghData.location) metaItems.push(`<div class="profile-meta-item"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg> ${ghData.location}</div>`);
                 if (ghData.blog) metaItems.push(`<a href="${ghData.blog.startsWith('http') ? ghData.blog : 'https://' + ghData.blog}" target="_blank" class="profile-meta-item"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18" /></svg> Website</a>`);
@@ -936,18 +937,18 @@ async function renderProfile(profileId) {
         linkedin: '<path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-4 0v7h-4v-7a6 6 0 016-6zM2 9h4v12H2zM4 2a2 2 0 110 4 2 2 0 010-4z"/>'
     };
 
-    achievementsHtml = `<div class="achievements-row">${achievements.map(a => `<div class="achievement-badge ${a.class || ''}"><div class="achievement-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconMap[a.icon] || iconMap.post}</svg></div><span class="achievement-name">${a.name}</span></div>`).join('')}</div>`;
+    achievementsHtml = `<div class="achievements-row" style="padding: 0; border: none;">${achievements.map(a => `<div class="achievement-badge ${a.class || ''}"><div class="achievement-icon"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconMap[a.icon] || iconMap.post}</svg></div><span class="achievement-name">${a.name}</span></div>`).join('')}</div>`;
 
     const verifiedHtml = profile.is_verified ? `<span class="verified-badge"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span>` : '';
     const premiumHtml = profile.is_premium ? `<span class="premium-badge"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm14 3c0 .6-.4 1-1 1H6c-.6 0-1-.4-1-1v-1h14v1z"/></svg></span>` : '';
     
     let socialsHtml = '';
-    if (profile.linkedin_url || profile.twitter_url || profile.github_url) {
-        socialsHtml = `<div class="social-links">`;
-        if (profile.github_url) socialsHtml += `<a href="${profile.github_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg></a>`;
-        if (profile.gitlab_url) socialsHtml += `<a href="${profile.gitlab_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M23.955 13.587l-1.347-4.135-2.664-8.197a.455.455 0 00-.867 0L16.413 9.45H7.587L4.923 1.255a.455.455 0 00-.867 0L1.392 9.452.045 13.587a.924.924 0 00.331 1.023L12 23.054l11.624-8.443a.92.92 0 00.331-1.024"/></svg></a>`;
-        if (profile.linkedin_url) socialsHtml += `<a href="${profile.linkedin_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg></a>`;
-        if (profile.twitter_url) socialsHtml += `<a href="${profile.twitter_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>`;
+    if (profile.linkedin_url || profile.twitter_url || profile.github_url || profile.gitlab_url) {
+        socialsHtml = `<div class="social-icons-row">`;
+        if (profile.github_url) socialsHtml += `<a href="${profile.github_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24" style="width: 20px; height: 20px;"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg></a>`;
+        if (profile.gitlab_url) socialsHtml += `<a href="${profile.gitlab_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24" style="width: 20px; height: 20px;"><path d="M23.955 13.587l-1.347-4.135-2.664-8.197a.455.455 0 00-.867 0L16.413 9.45H7.587L4.923 1.255a.455.455 0 00-.867 0L1.392 9.452.045 13.587a.924.924 0 00.331 1.023L12 23.054l11.624-8.443a.92.92 0 00.331-1.024"/></svg></a>`;
+        if (profile.linkedin_url) socialsHtml += `<a href="${profile.linkedin_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24" style="width: 20px; height: 20px;"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg></a>`;
+        if (profile.twitter_url) socialsHtml += `<a href="${profile.twitter_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24" style="width: 20px; height: 20px;"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>`;
         socialsHtml += `</div>`;
     }
 
@@ -963,19 +964,64 @@ async function renderProfile(profileId) {
         </header>
         <div class="profile-header fade-in">
             <div class="profile-banner" style="${profile.banner_url ? `background-image: url('${profile.banner_url}')` : ''}"></div>
-            <div class="profile-avatar-wrapper"><img src="${profile.avatar_url || `https://ui-avatars.com/api/?name=${profile.username}`}" class="profile-avatar-main">
-            ${currentUser && currentUser.id !== profileId ? `<div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;"><button onclick="handleFollow('${profileId}', ${isFollowing})" class="btn ${isFollowing ? 'btn-ghost' : 'btn-primary'} btn-sm">${isFollowing ? 'Following' : 'Follow'}</button><button onclick="startDm('${profileId}')" class="btn btn-ghost btn-sm"><svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>Message</button></div>` : currentUser && currentUser.id === profileId ? `<button onclick="showEditProfile()" class="btn btn-ghost btn-sm" style="margin-bottom: 1rem;">Edit Profile</button>` : ''}
+            <div class="profile-avatar-wrapper">
+                <img src="${profile.avatar_url || `https://ui-avatars.com/api/?name=${profile.username}`}" class="profile-avatar-main">
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                    ${currentUser && currentUser.id !== profileId ? `
+                        <button onclick="handleFollow('${profileId}', ${isFollowing})" class="btn ${isFollowing ? 'btn-ghost' : 'btn-primary'} btn-sm">${isFollowing ? 'Following' : 'Follow'}</button>
+                        <button onclick="startDm('${profileId}')" class="btn btn-ghost btn-sm"><svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>Message</button>
+                    ` : currentUser && currentUser.id === profileId ? `
+                        <button onclick="showEditProfile()" class="btn btn-ghost btn-sm" style="margin-bottom: 0;">Edit Profile</button>
+                    ` : ''}
+                </div>
             </div>
+            
             <div class="profile-info">
-                <h2 style="font-size: 1.5rem; font-weight: 800;">${profile.full_name || profile.username} ${verifiedHtml} ${premiumHtml} ${badgeHtml}</h2>
+                <h2 style="font-size: 1.5rem; font-weight: 800; display: flex; align-items: center;">${profile.full_name || profile.username} ${verifiedHtml} ${premiumHtml} ${badgeHtml}</h2>
                 <p style="color: var(--text-muted);" class="font-mono">@${profile.username}</p>
-                ${profile.bio ? `<p class="profile-bio">${profile.bio}</p>` : '<p class="profile-bio" style="font-style: italic; color: var(--text-muted);">No bio yet.</p>'}
+                ${profile.bio ? `<p class="profile-bio" style="margin-top: 0.5rem;">${profile.bio}</p>` : '<p class="profile-bio" style="font-style: italic; color: var(--text-muted); margin-top: 0.5rem;">No bio yet.</p>'}
             </div>
-            ${profile.domain_verified ? `<div class="profile-meta-row"><a href="https://${profile.custom_domain}" target="_blank" class="profile-meta-item"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18" /></svg> ${profile.custom_domain}</a></div>` : ''}
-            ${metaItems.length > 0 ? `<div class="profile-meta-row">${metaItems.join('')}</div>` : ''}
-            ${socialsHtml} ${ghStatsHtml} ${achievementsHtml}
+
+            ${metaItems.length > 0 ? `
+            <div class="profile-section">
+                <div class="section-label">Details</div>
+                <div class="profile-meta-row" style="border: none; padding: 0; gap: 1rem 1.5rem;">
+                    ${metaItems.join('')}
+                </div>
+            </div>` : ''}
+
+            <div class="profile-section">
+                <div class="section-label">CodeSNS Stats</div>
+                <div class="stats-grid">
+                    <div class="stat-box"><div class="stat-value">${posts.length}</div><div class="stat-label">Posts</div></div>
+                    <div class="stat-box"><div class="stat-value">${csnsFollowers || 0}</div><div class="stat-label">Followers</div></div>
+                    <div class="stat-box"><div class="stat-value">${csnsFollowing || 0}</div><div class="stat-label">Following</div></div>
+                </div>
+            </div>
+
+            ${profile.github_url ? `
+            <div class="profile-section">
+                <div class="section-label">GitHub Stats</div>
+                <div class="stats-grid">
+                    <div class="stat-box"><div class="stat-value">${ghRepos}</div><div class="stat-label">Repos</div></div>
+                    <div class="stat-box"><div class="stat-value">${totalStars}</div><div class="stat-label">Stars</div></div>
+                    <div class="stat-box"><div class="stat-value">${ghFollowers}</div><div class="stat-label">Followers</div></div>
+                </div>
+            </div>` : ''}
+
+            ${socialsHtml ? `
+            <div class="profile-section">
+                <div class="section-label">Social Links</div>
+                ${socialsHtml}
+            </div>` : ''}
+
+            ${achievements.length > 0 ? `
+            <div class="profile-section">
+                <div class="section-label">Achievements</div>
+                ${achievementsHtml}
+            </div>` : ''}
         </div>
-        <div id="feed">${posts.map(post => renderPostCard(post)).join('() || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No posts yet.</div>'}</div>
+        <div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No posts yet.</div>'}</div>
     `;
     app.innerHTML = renderLayout(centerContent, 'profile');
     fetchTrendingRepos(); applySyntaxHighlighting(); initRepoStats();
