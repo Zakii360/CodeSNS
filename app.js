@@ -24,104 +24,77 @@ let isLoadingPosts = false;
 let hasMorePosts = true;
 let profileTab = 'posts';
 let settingsTab = 'profile';
-let trendingHtmlCache = ''; // Cache trending repos so we don't hit GitHub API limits
+let trendingHtmlCache = ''; 
 
 function updatePostInCache(postId, updateFn) {
     const post = feedCache.find(p => p.id === postId);
-    if (post) {
-        updateFn(post);
-        renderFeedContent();
-    }
+    if (post) { updatePost(post); renderFeedContent(); }
 }
 
 async function fetchFeedPosts(isInfinite = false) {
     if (isLoadingPosts) return;
     isLoadingPosts = true;
-    
-    if (!isInfinite) {
-        postsPage = 0;
-        hasMorePosts = true;
-        feedCache = [];
-    }
-    
-    const start = postsPage * 10;
-    const end = start + 9;
-    
+    if (!isInfinite) { postsPage = 0; hasMorePosts = true; feedCache = []; }
+    const start = postsPage * 10; const end = start + 9;
     let query = sb.from('csns_posts').select(`*, csns_profiles:user_id (*), csns_post_repos (*), csns_likes (user_id), csns_reactions (user_id, type), csns_bookmarks (user_id), parent:parent_post_id (*, csns_profiles:user_id (*)), csns_polls (*, csns_poll_votes (user_id, option_index))`).order('created_at', { ascending: false }).range(start, end);
-    
     const { data, error } = await query;
     if (error) { isLoadingPosts = false; return; }
-    
     if (data.length < 10) hasMorePosts = false;
     feedCache = isInfinite ? [...feedCache, ...data] : data;
-    postsPage++;
-    isLoadingPosts = false;
-    
-    renderFeedContent();
-    setupInfiniteScroll();
+    postsPage++; isLoadingPosts = false;
+    renderFeedContent(); setupInfiniteScroll();
 }
 
 function setupInfiniteScroll() {
     const sentinel = document.getElementById('infinite-scroll-sentinel');
     if (!sentinel) return;
-    
     const observer = new IntersectionObserver((entries) => {
-        if (entries[0].isIntersecting && hasMorePosts && !isLoadingPosts) {
-            fetchFeedPosts(true);
-        }
+        if (entries[0].isIntersecting && hasMorePosts && !isLoadingPosts) fetchFeedPosts(true);
     }, { threshold: 1.0 });
-    
     observer.observe(sentinel);
 }
 
 document.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-    if (e.key === '/' || (e.metaKey && e.key === 'k') || (e.ctrlKey && e.key === 'k')) {
-        e.preventDefault();
-        document.querySelector('.search-box')?.focus();
-    }
+    if (e.key === '/' || (e.metaKey && e.key === 'k') || (e.ctrlKey && e.key === 'k')) { e.preventDefault(); document.querySelector('.search-box')?.focus(); }
 });
 
 async function fetchDevTip() {
-    try {
-        const { data, error } = await sb.functions.invoke('groq-tip');
-        if (!error && data.tip) {
-            devTip = data.tip;
-            const tipElement = document.getElementById('dev-tip-text');
-            if (tipElement) tipElement.innerText = devTip;
-        }
-    } catch (e) {}
+    try { const { data, error } = await sb.functions.invoke('groq-tip'); if (!error && data.tip) { devTip = data.tip; const tipElement = document.getElementById('dev-tip-text'); if (tipElement) tipElement.innerText = devTip; } } catch (e) {}
 }
 
 async function fetchTrendingRepos() {
     const trendEl = document.getElementById('trending-repos');
     if (!trendEl) return;
-    
-    // If we already fetched them, just inject the cached HTML
-    if (trendingHtmlCache) {
-        trendEl.innerHTML = trendingHtmlCache;
-        return;
-    }
-    
+    if (trendingHtmlCache) { trendEl.innerHTML = trendingHtmlCache; return; }
     try {
         const res = await fetch(`https://api.github.com/search/repositories?q=stars:%3E10000&sort=stars&order=desc&per_page=3`);
         if (!res.ok) throw new Error("Rate limited");
         const data = await res.json();
-        if (data.items) {
-            trendingHtmlCache = data.items.map(r => `
-                <div class="trend-item">
-                    <div class="font-mono" style="color: var(--accent-primary); font-size: 0.9rem;">${r.full_name}</div>
-                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">${r.stargazers_count} stars</div>
-                </div>
-            `).join('');
-        }
+        if (data.items) trendingHtmlCache = data.items.map(r => `<div class="trend-item"><div class="font-mono" style="color: var(--accent-primary); font-size: 0.9rem;">${r.full_name}</div><div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">${r.stargazers_count} stars</div></div>`).join('');
     } catch (e) {
-        trendingHtmlCache = `
-            <div class="trend-item"><div class="font-mono" style="color: var(--accent-primary); font-size: 0.9rem;">vercel / next.js</div><div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">The React Framework</div></div>
-            <div class="trend-item"><div class="font-mono" style="color: var(--accent-primary); font-size: 0.9rem;">supabase / supabase</div><div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">Backend as a Service</div></div>
-        `;
+        trendingHtmlCache = `<div class="trend-item"><div class="font-mono" style="color: var(--accent-primary); font-size: 0.9rem;">vercel / next.js</div><div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">The React Framework</div></div><div class="trend-item"><div class="font-mono" style="color: var(--accent-primary); font-size: 0.9rem;">supabase / supabase</div><div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">Backend as a Service</div></div>`;
     }
     trendEl.innerHTML = trendingHtmlCache;
+}
+
+// FIX: Added error handling so it doesn't get stuck on "Loading..."
+async function initRepoStats() {
+    const embeds = document.querySelectorAll('.repo-embed[data-owner]');
+    for (const el of embeds) {
+        const owner = el.dataset.owner; const repo = el.dataset.repo;
+        const statsEl = el.querySelector('.repo-stats');
+        if (!statsEl || statsEl.dataset.loaded) continue;
+        statsEl.dataset.loaded = 'true';
+        try {
+            const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
+            if (!res.ok) throw new Error("Rate limited");
+            const data = await res.json();
+            statsEl.innerHTML = `<span class="repo-stat">⭐ ${data.stargazers_count}</span><span class="repo-stat">🍴 ${data.forks_count}</span><span class="repo-stat" style="color: #a855f7;">${data.language || 'Code'}</span>`;
+        } catch (e) {
+            statsEl.innerHTML = '<span class="repo-stat" style="color: var(--text-muted);">Stats unavailable</span>';
+        }
+    }
 }
 
 async function checkAuth() {
@@ -129,23 +102,13 @@ async function checkAuth() {
     if (session) {
         let { data: profile } = await sb.from('csns_profiles').select('*').eq('id', session.user.id).single();
         if (!profile) {
-            const meta = session.user.user_metadata;
-            const username = meta.user_name || meta.full_name || session.user.email.split('@')[0];
-            const { data: newProfile } = await sb.from('csns_profiles').insert({
-                id: session.user.id, username, full_name: meta.full_name || username,
-                avatar_url: meta.avatar_url, github_url: `https://github.com/${meta.user_name}`
-            }).select().single();
+            const meta = session.user.user_metadata; const username = meta.user_name || meta.full_name || session.user.email.split('@')[0];
+            const { data: newProfile } = await sb.from('csns_profiles').insert({ id: session.user.id, username, full_name: meta.full_name || username, avatar_url: meta.avatar_url, github_url: `https://github.com/${meta.user_name}` }).select().single();
             profile = newProfile;
         }
-        
-        if (session.user.email.endsWith('@360-search.com') && !profile.is_premium) {
-            const { data: updated } = await sb.from('csns_profiles').update({ is_premium: true, is_verified: true }).eq('id', session.user.id).select().single();
-            profile = updated;
-        }
+        if (session.user.email.endsWith('@360-search.com') && !profile.is_premium) { const { data: updated } = await sb.from('csns_profiles').update({ is_premium: true, is_verified: true }).eq('id', session.user.id).select().single(); profile = updated; }
         currentUser = profile;
-    } else {
-        currentUser = null;
-    }
+    } else { currentUser = null; }
     renderApp();
 }
 
@@ -153,55 +116,24 @@ window.loginWithGithub = async function() { await sb.auth.signInWithOAuth({ prov
 window.loginWithGitlab = async function() { await sb.auth.signInWithOAuth({ provider: 'gitlab', options: { redirectTo: window.location.origin + window.location.pathname } }); }
 window.logout = async function() { await sb.auth.signOut(); currentUser = null; currentView = 'feed'; renderApp(); }
 
-sb.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_IN' && !currentUser) checkAuth();
-    else if (event === 'SIGNED_OUT') checkAuth();
-});
+sb.auth.onAuthStateChange((event, session) => { if (event === 'SIGNED_IN' && !currentUser) checkAuth(); else if (event === 'SIGNED_OUT') checkAuth(); });
 
-async function createNotification(actorId, userId, type, postId = null) {
-    if (actorId === userId) return;
-    await sb.from('csns_notifications').insert({ actor_id: actorId, user_id: userId, type, post_id: postId });
-}
+async function createNotification(actorId, userId, type, postId = null) { if (actorId === userId) return; await sb.from('csns_notifications').insert({ actor_id: actorId, user_id: userId, type, post_id: postId }); }
 
 window.toggleNotifDropdown = async function(e) {
-    e.stopPropagation();
-    const dropdown = document.getElementById('notif-dropdown');
+    e.stopPropagation(); const dropdown = document.getElementById('notif-dropdown');
     if (dropdown.classList.contains('active')) { dropdown.classList.remove('active'); return; }
-    dropdown.classList.add('active');
-    dropdown.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-muted);">Loading...</div>';
+    dropdown.classList.add('active'); dropdown.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-muted);">Loading...</div>';
     const { data: notifs } = await sb.from('csns_notifications').select('*, actor:actor_id(*)').eq('user_id', currentUser.id).order('created_at', { ascending: false }).limit(15);
     if (!notifs || notifs.length === 0) { dropdown.innerHTML = '<div style="padding: 2rem; text-align: center; color: var(--text-muted);">No notifications yet.</div>'; return; }
-    dropdown.innerHTML = notifs.map(n => `
-        <div class="notif-item ${!n.read ? 'unread' : ''}" onclick="handleNotifClick('${n.id}', '${n.type}', '${n.post_id || ''}', '${n.actor_id}')">
-            <img src="${n.actor?.avatar_url || `https://ui-avatars.com/api/?name=${n.actor?.username}`}" class="post-avatar" style="width: 32px; height: 32px;">
-            <div style="flex: 1;"><span style="font-weight: 700;">@${n.actor?.username}</span> ${n.type === 'like' ? 'liked your post' : n.type === 'comment' ? 'commented on your post' : n.type === 'follow' ? 'followed you' : 'sent you a message'}</div>
-            ${!n.read ? '<div class="notif-dot"></div>' : ''}
-        </div>
-    `).join('');
+    dropdown.innerHTML = notifs.map(n => `<div class="notif-item ${!n.read ? 'unread' : ''}" onclick="handleNotifClick('${n.id}', '${n.type}', '${n.post_id || ''}', '${n.actor_id}')"><img src="${n.actor?.avatar_url || `https://ui-avatars.com/api/?name=${n.actor?.username}`}" class="post-avatar" style="width: 32px; height: 32px;"><div style="flex: 1;"><span style="font-weight: 700;">@${n.actor?.username}</span> ${n.type === 'like' ? 'liked your post' : n.type === 'comment' ? 'commented on your post' : n.type === 'follow' ? 'followed you' : 'sent you a message'}</div>${!n.read ? '<div class="notif-dot"></div>' : ''}</div>`).join('');
     const unreadIds = notifs.filter(n => !n.read).map(n => n.id);
     if (unreadIds.length > 0) await sb.from('csns_notifications').update({ read: true }).in('id', unreadIds);
 }
 
-window.handleNotifClick = async function(id, type, postId, actorId) {
-    document.getElementById('notif-dropdown').classList.remove('active');
-    if (type === 'follow') { currentView = `profile_${actorId}`; renderApp(); }
-    else if (type === 'message') { activeChatUser = actorId; currentView = 'messages'; renderApp(); }
-    else if (postId) { currentView = 'feed'; renderApp(); setTimeout(() => toggleComments(postId), 500); }
-}
-
+window.handleNotifClick = async function(id, type, postId, actorId) { document.getElementById('notif-dropdown').classList.remove('active'); if (type === 'follow') { currentView = `profile_${actorId}`; renderApp(); } else if (type === 'message') { activeChatUser = actorId; currentView = 'messages'; renderApp(); } else if (postId) { currentView = 'feed'; renderApp(); setTimeout(() => toggleComments(postId), 500); } }
 window.setPostType = function(type) { selectedPostType = type; document.querySelectorAll('.type-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.type === type)); }
-window.handleImageSelect = function(input) {
-    if (input.files && input.files[0]) {
-        selectedImageFile = input.files[0];
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            document.getElementById('image-preview').src = e.target.result;
-            document.getElementById('image-preview').style.display = 'block';
-        };
-        reader.readAsDataURL(selectedImageFile);
-    }
-}
-
+window.handleImageSelect = function(input) { if (input.files && input.files[0]) { selectedImageFile = input.files[0]; const reader = new FileReader(); reader.onload = (e) => { document.getElementById('image-preview').src = e.target.result; document.getElementById('image-preview').style.display = 'block'; }; reader.readAsDataURL(selectedImageFile); } }
 window.togglePollComposer = function() { const div = document.getElementById('poll-composer'); div.style.display = div.style.display === 'none' ? 'block' : 'none'; }
 
 window.handlePost = async function(parentId = null, isRepost = false) {
@@ -209,118 +141,30 @@ window.handlePost = async function(parentId = null, isRepost = false) {
     if (!parentId) { content = document.getElementById('post-content').value; postType = selectedPostType; community = document.getElementById('post-community')?.value || null; } 
     else { if (!isRepost) content = document.getElementById('quote-content').value; }
     if (!content.trim() && !isRepost) return;
-
     let imageUrl = null;
-    if (selectedImageFile && !parentId) {
-        const fileName = `${Date.now()}_${selectedImageFile.name}`;
-        const { data: uploadData } = await sb.storage.from('post_images').upload(fileName, selectedImageFile);
-        if (uploadData) imageUrl = sb.storage.from('post_images').getPublicUrl(fileName).data.publicUrl;
-        selectedImageFile = null;
-    }
-
-    const { data: newPost, error } = await sb.from('csns_posts').insert({
-        content, user_id: currentUser.id, image_url: imageUrl, parent_post_id: parentId, is_repost: isRepost, post_type: postType, community
-    }).select('id, user_id').single();
-
+    if (selectedImageFile && !parentId) { const fileName = `${Date.now()}_${selectedImageFile.name}`; const { data: uploadData } = await sb.storage.from('post_images').upload(fileName, selectedImageFile); if (uploadData) imageUrl = sb.storage.from('post_images').getPublicUrl(fileName).data.publicUrl; selectedImageFile = null; }
+    const { data: newPost, error } = await sb.from('csns_posts').insert({ content, user_id: currentUser.id, image_url: imageUrl, parent_post_id: parentId, is_repost: isRepost, post_type: postType, community }).select('id, user_id').single();
     if (error) { alert('Error creating post: ' + error.message); return; }
-
     if (!parentId) {
         const repoUrl = document.getElementById('repo-url').value;
-        if (repoUrl) {
-            try {
-                const u = new URL(repoUrl);
-                const parts = u.pathname.split('/').filter(Boolean);
-                if (parts.length >= 2 && (u.hostname.includes('github') || u.hostname.includes('gitlab'))) {
-                    const platform = u.hostname.includes('github') ? 'github' : 'gitlab';
-                    await sb.from('csns_post_repos').insert({ post_id: newPost.id, platform, owner: parts[0], repo_name: parts[1], repo_url: repoUrl });
-                }
-            } catch(e) {}
-        }
-
+        if (repoUrl) { try { const u = new URL(repoUrl); const parts = u.pathname.split('/').filter(Boolean); if (parts.length >= 2 && (u.hostname.includes('github') || u.hostname.includes('gitlab'))) { const platform = u.hostname.includes('github') ? 'github' : 'gitlab'; await sb.from('csns_post_repos').insert({ post_id: newPost.id, platform, owner: parts[0], repo_name: parts[1], repo_url: repoUrl }); } } catch(e) {} }
         const pollComposer = document.getElementById('poll-composer');
-        if (pollComposer && pollComposer.style.display !== 'none') {
-            let pollOptions = [];
-            for (let i = 1; i <= 3; i++) { const val = document.getElementById(`poll-opt-${i}`).value.trim(); if (val) pollOptions.push(val); }
-            if (pollOptions.length > 1) { await sb.from('csns_polls').insert({ post_id: newPost.id, options: pollOptions }); }
-        }
+        if (pollComposer && pollComposer.style.display !== 'none') { let pollOptions = []; for (let i = 1; i <= 3; i++) { const val = document.getElementById(`poll-opt-${i}`).value.trim(); if (val) pollOptions.push(val); } if (pollOptions.length > 1) { await sb.from('csns_polls').insert({ post_id: newPost.id, options: pollOptions }); } }
     }
-
-    if (parentId) {
-        const { data: parentPost } = await sb.from('csns_posts').select('user_id').eq('id', parentId).single();
-        if (parentPost) createNotification(currentUser.id, parentPost.user_id, isRepost ? 'repost' : 'comment', parentId);
-    }
-    closeQuoteModal();
-    fetchFeedPosts(false);
+    if (parentId) { const { data: parentPost } = await sb.from('csns_posts').select('user_id').eq('id', parentId).single(); if (parentPost) createNotification(currentUser.id, parentPost.user_id, isRepost ? 'repost' : 'comment', parentId); }
+    closeQuoteModal(); fetchFeedPosts(false);
 }
 
-window.votePoll = async function(pollId, optionIndex) {
-    if (!currentUser) return alert('Please login to vote.');
-    const { error } = await sb.from('csns_poll_votes').insert({ poll_id: pollId, user_id: currentUser.id, option_index: optionIndex });
-    if (error) alert('Error voting: ' + error.message);
-    fetchFeedPosts(false);
-}
+window.votePoll = async function(pollId, optionIndex) { if (!currentUser) return alert('Please login to vote.'); const { error } = await sb.from('csns_poll_votes').insert({ poll_id: pollId, user_id: currentUser.id, option_index: optionIndex }); if (error) alert('Error voting: ' + error.message); fetchFeedPosts(false); }
+window.deletePost = async function(postId) { if (!confirm('Are you sure you want to delete this post?')) return; const { error } = await sb.from('csns_posts').delete().eq('id', postId); if (error) alert('Error deleting: ' + error.message); fetchFeedPosts(false); }
 
-window.deletePost = async function(postId) {
-    if (!confirm('Are you sure you want to delete this post?')) return;
-    const { error } = await sb.from('csns_posts').delete().eq('id', postId);
-    if (error) alert('Error deleting: ' + error.message);
-    fetchFeedPosts(false);
-}
-
-window.handleLike = async function(postId, ownerId) {
-    if (!currentUser) return alert('Please login to like.');
-    const isLiked = feedCache.find(p => p.id === postId)?.csns_likes.some(l => l.user_id === currentUser.id);
-    updatePostInCache(postId, (post) => {
-        if (isLiked) post.csns_likes = post.csns_likes.filter(l => l.user_id !== currentUser.id);
-        else post.csns_likes.push({ user_id: currentUser.id });
-    });
-    if (isLiked) { await sb.from('csns_likes').delete().match({ post_id: postId, user_id: currentUser.id }); } 
-    else { await sb.from('csns_likes').insert({ post_id: postId, user_id: currentUser.id }); createNotification(currentUser.id, ownerId, 'like', postId); }
-}
-
-window.handleReaction = async function(postId, type, ownerId) {
-    if (!currentUser) return alert('Please login to react.');
-    const existing = feedCache.find(p => p.id === postId)?.csns_reactions.find(r => r.user_id === currentUser.id);
-    updatePostInCache(postId, (post) => {
-        if (existing) { if (existing.type === type) post.csns_reactions = post.csns_reactions.filter(r => r.user_id !== currentUser.id); else existing.type = type; } 
-        else { post.csns_reactions.push({ user_id: currentUser.id, type }); }
-    });
-    if (existing) { if (existing.type === type) await sb.from('csns_reactions').delete().match({ id: existing.id }); else await sb.from('csns_reactions').update({ type }).eq('id', existing.id); } 
-    else { await sb.from('csns_reactions').insert({ post_id: postId, user_id: currentUser.id, type }); }
-}
-
-window.handleBookmark = async function(postId, isSaved) {
-    if (!currentUser) return alert('Please login to save posts.');
-    updatePostInCache(postId, (post) => {
-        if (isSaved) post.csns_bookmarks = post.csns_bookmarks.filter(b => b.user_id !== currentUser.id);
-        else post.csns_bookmarks.push({ user_id: currentUser.id });
-    });
-    if (isSaved) await sb.from('csns_bookmarks').delete().match({ post_id: postId, user_id: currentUser.id });
-    else await sb.from('csns_bookmarks').insert({ post_id: postId, user_id: currentUser.id });
-}
-
-window.handleFollow = async function(targetId, isFollowing) {
-    if (!currentUser) return;
-    if (isFollowing) await sb.from('csns_follows').delete().match({ follower_id: currentUser.id, following_id: targetId });
-    else { await sb.from('csns_follows').insert({ follower_id: currentUser.id, following_id: targetId }); createNotification(currentUser.id, targetId, 'follow'); }
-    renderApp();
-}
+window.handleLike = async function(postId, ownerId) { if (!currentUser) return alert('Please login to like.'); const isLiked = feedCache.find(p => p.id === postId)?.csns_likes.some(l => l.user_id === currentUser.id); updatePostInCache(postId, (post) => { if (isLiked) post.csns_likes = post.csns_likes.filter(l => l.user_id !== currentUser.id); else post.csns_likes.push({ user_id: currentUser.id }); }); if (isLiked) { await sb.from('csns_likes').delete().match({ post_id: postId, user_id: currentUser.id }); } else { await sb.from('csns_likes').insert({ post_id: postId, user_id: currentUser.id }); createNotification(currentUser.id, ownerId, 'like', postId); } }
+window.handleReaction = async function(postId, type, ownerId) { if (!currentUser) return alert('Please login to react.'); const existing = feedCache.find(p => p.id === postId)?.csns_reactions.find(r => r.user_id === currentUser.id); updatePostInCache(postId, (post) => { if (existing) { if (existing.type === type) post.csns_reactions = post.csns_reactions.filter(r => r.user_id !== currentUser.id); else existing.type = type; } else { post.csns_reactions.push({ user_id: currentUser.id, type }); } }); if (existing) { if (existing.type === type) await sb.from('csns_reactions').delete().match({ id: existing.id }); else await sb.from('csns_reactions').update({ type }).eq('id', existing.id); } else { await sb.from('csns_reactions').insert({ post_id: postId, user_id: currentUser.id, type }); } }
+window.handleBookmark = async function(postId, isSaved) { if (!currentUser) return alert('Please login to save posts.'); updatePostInCache(postId, (post) => { if (isSaved) post.csns_bookmarks = post.csns_bookmarks.filter(b => b.user_id !== currentUser.id); else post.csns_bookmarks.push({ user_id: currentUser.id }); }); if (isSaved) await sb.from('csns_bookmarks').delete().match({ post_id: postId, user_id: currentUser.id }); else await sb.from('csns_bookmarks').insert({ post_id: postId, user_id: currentUser.id }); }
+window.handleFollow = async function(targetId, isFollowing) { if (!currentUser) return; if (isFollowing) await sb.from('csns_follows').delete().match({ follower_id: currentUser.id, following_id: targetId }); else { await sb.from('csns_follows').insert({ follower_id: currentUser.id, following_id: targetId }); createNotification(currentUser.id, targetId, 'follow'); } renderApp(); }
 
 window.copyCode = function(btn) { navigator.clipboard.writeText(btn.closest('.code-block-wrapper').querySelector('code').innerText); btn.innerText = 'Copied!'; setTimeout(() => btn.innerText = 'Copy', 2000); }
-window.runCode = function(btn) {
-    const wrapper = btn.closest('.code-block-wrapper');
-    const outputDiv = wrapper.querySelector('.code-output');
-    try {
-        let logs = [];
-        const oldLog = console.log;
-        console.log = (...args) => logs.push(args.join(' '));
-        const result = eval(wrapper.querySelector('code').innerText);
-        console.log = oldLog;
-        outputDiv.innerText = logs.join('\n') + (result !== undefined ? '\n' + result : '');
-        if (!outputDiv.innerText) outputDiv.innerText = 'Code executed successfully.';
-    } catch (e) { outputDiv.innerText = 'Error: ' + e.message; }
-    outputDiv.style.display = 'block';
-}
+window.runCode = function(btn) { const wrapper = btn.closest('.code-block-wrapper'); const outputDiv = wrapper.querySelector('.code-output'); try { let logs = []; const oldLog = console.log; console.log = (...args) => logs.push(args.join(' ')); const result = eval(wrapper.querySelector('code').innerText); console.log = oldLog; outputDiv.innerText = logs.join('\n') + (result !== undefined ? '\n' + result : ''); if (!outputDiv.innerText) outputDiv.innerText = 'Code executed successfully.'; } catch (e) { outputDiv.innerText = 'Error: ' + e.message; } outputDiv.style.display = 'block'; }
 
 window.showQuoteModal = function(postId, isRepost) { const modal = document.getElementById('quote-modal'); modal.style.display = 'flex'; modal.dataset.postId = postId; modal.dataset.isRepost = isRepost; document.getElementById('quote-content').style.display = isRepost ? 'none' : 'block'; }
 window.closeQuoteModal = function() { document.getElementById('quote-modal').style.display = 'none'; }
@@ -329,22 +173,9 @@ window.submitQuote = function() { const modal = document.getElementById('quote-m
 window.toggleComments = async function(postId, ownerId) {
     const section = document.getElementById(`comments-${postId}`);
     if (section.style.display === 'none' || !section.innerHTML) {
-        section.style.display = 'block';
-        section.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-muted);">Loading...</div>';
+        section.style.display = 'block'; section.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-muted);">Loading...</div>';
         const { data: comments } = await sb.from('csns_comments').select('*, csns_profiles:user_id (*)').eq('post_id', postId).order('created_at', { ascending: true });
-        
-        const renderComments = (parentId = null, depth = 0) => {
-            return comments.filter(c => (c.parent_comment_id || null) === parentId).map(c => `
-                <div class="comment-item" style="margin-left: ${depth * 2}rem;">
-                    <img src="${c.csns_profiles?.avatar_url || `https://ui-avatars.com/api/?name=${c.csns_profiles?.username}`}" class="post-avatar" style="width: 32px; height: 32px;">
-                    <div style="flex: 1;">
-                        <div style="display: flex; gap: 0.5rem; align-items: center;"><span style="font-weight: 700; font-size: 0.9rem;">${c.csns_profiles?.full_name || c.csns_profiles?.username}</span><span style="font-size: 0.8rem; color: var(--text-muted);" class="font-mono">@${c.csns_profiles?.username}</span></div>
-                        <p style="color: var(--text-secondary); margin-top: 0.25rem; font-size: 0.9rem;">${c.content}</p>
-                        ${currentUser ? `<button class="reply-btn" onclick="setReplyTo('${c.id}', '${postId}')">Reply</button>` : ''}
-                    </div>
-                </div>${renderComments(c.id, depth + 1)}`).join('');
-        };
-
+        const renderComments = (parentId = null, depth = 0) => { return comments.filter(c => (c.parent_comment_id || null) === parentId).map(c => `<div class="comment-item" style="margin-left: ${depth * 2}rem;"><img src="${c.csns_profiles?.avatar_url || `https://ui-avatars.com/api/?name=${c.csns_profiles?.username}`}" class="post-avatar" style="width: 32px; height: 32px;"><div style="flex: 1;"><div style="display: flex; gap: 0.5rem; align-items: center;"><span style="font-weight: 700; font-size: 0.9rem;">${c.csns_profiles?.full_name || c.csns_profiles?.username}</span><span style="font-size: 0.8rem; color: var(--text-muted);" class="font-mono">@${c.csns_profiles?.username}</span></div><p style="color: var(--text-secondary); margin-top: 0.25rem; font-size: 0.9rem;">${c.content}</p>${currentUser ? `<button class="reply-btn" onclick="setReplyTo('${c.id}', '${postId}')">Reply</button>` : ''}</div></div>${renderComments(c.id, depth + 1)}`).join(''); };
         let html = renderComments();
         if (currentUser) html += `<div class="comment-input-area"><input id="comment-input-${postId}" type="text" placeholder="Tweet your reply..."><button onclick="submitComment('${postId}', '${ownerId}')" class="btn btn-primary btn-sm">Reply</button></div>`;
         section.innerHTML = html || '<div style="padding: 1rem; text-align: center; color: var(--text-muted);">No comments yet.</div>';
@@ -352,39 +183,22 @@ window.toggleComments = async function(postId, ownerId) {
 }
 
 window.setReplyTo = function(commentId, postId) { replyToCommentId = commentId; const input = document.getElementById(`comment-input-${postId}`); input.placeholder = "Replying to comment..."; input.focus(); }
-window.submitComment = async function(postId, ownerId) {
-    const input = document.getElementById(`comment-input-${postId}`);
-    if (!input.value.trim()) return;
-    const { error } = await sb.from('csns_comments').insert({ post_id: postId, user_id: currentUser.id, content: input.value, parent_comment_id: replyToCommentId });
-    if (error) alert('Error commenting: ' + error.message);
-    createNotification(currentUser.id, ownerId, 'comment', postId);
-    replyToCommentId = null;
-    toggleComments(postId, ownerId);
-    setTimeout(() => toggleComments(postId, ownerId), 200);
-}
+window.submitComment = async function(postId, ownerId) { const input = document.getElementById(`comment-input-${postId}`); if (!input.value.trim()) return; const { error } = await sb.from('csns_comments').insert({ post_id: postId, user_id: currentUser.id, content: input.value, parent_comment_id: replyToCommentId }); if (error) alert('Error commenting: ' + error.message); createNotification(currentUser.id, ownerId, 'comment', postId); replyToCommentId = null; toggleComments(postId, ownerId); setTimeout(() => toggleComments(postId, ownerId), 200); }
 
 window.searchTag = function(tag) { activeTag = tag; currentView = 'feed'; renderApp(); }
 window.setFeedTab = function(tab) { activeFeedTab = tab; activeTag = null; renderApp(); }
 window.toggleTheme = function() { document.body.classList.toggle('light-theme'); localStorage.setItem('theme', document.body.classList.contains('light-theme') ? 'light' : 'dark'); }
 
 window.handleSearchInput = function(e) {
-    clearTimeout(searchTimeout);
-    const query = e.target.value.trim();
-    const resultsDiv = document.getElementById('search-results');
+    clearTimeout(searchTimeout); const query = e.target.value.trim(); const resultsDiv = document.getElementById('search-results');
     if (!query) { resultsDiv.style.display = 'none'; return; }
     searchTimeout = setTimeout(async () => {
         resultsDiv.style.display = 'block'; resultsDiv.innerHTML = '<div class="search-item">Searching...</div>';
         const { data: users } = await sb.from('csns_profiles').select('*').ilike('username', `%${query.replace('@', '')}%`).limit(3);
         const { data: posts } = await sb.from('csns_posts').select('id, content').ilike('content', `%${query}%`).limit(3);
         let html = '';
-        if (users && users.length > 0) {
-            html += '<div class="search-category">Users</div>';
-            html += users.map(u => `<div class="search-item" onclick="currentView='profile_${u.id}'; renderApp(); document.getElementById('search-results').style.display='none';"><img src="${u.avatar_url || `https://ui-avatars.com/api/?name=${u.username}`}" class="post-avatar" style="width: 24px; height: 24px;"><div><div style="font-weight: 700; font-size: 0.8rem;">${u.full_name || u.username}</div><div style="font-size: 0.7rem; color: var(--text-muted);" class="font-mono">@${u.username}</div></div></div>`).join('');
-        }
-        if (posts && posts.length > 0) {
-            html += '<div class="search-category">Posts</div>';
-            html += posts.map(p => `<div class="search-item" onclick="currentView='feed'; activeTag=null; renderApp(); document.getElementById('search-results').style.display='none';"><div style="font-size: 0.8rem; color: var(--text-secondary);">${p.content.substring(0, 40)}...</div></div>`).join('');
-        }
+        if (users && users.length > 0) { html += '<div class="search-category">Users</div>'; html += users.map(u => `<div class="search-item" onclick="currentView='profile_${u.id}'; renderApp(); document.getElementById('search-results').style.display='none';"><img src="${u.avatar_url || `https://ui-avatars.com/api/?name=${u.username}`}" class="post-avatar" style="width: 24px; height: 24px;"><div><div style="font-weight: 700; font-size: 0.8rem;">${u.full_name || u.username}</div><div style="font-size: 0.7rem; color: var(--text-muted);" class="font-mono">@${u.username}</div></div></div>`).join(''); }
+        if (posts && posts.length > 0) { html += '<div class="search-category">Posts</div>'; html += posts.map(p => `<div class="search-item" onclick="currentView='feed'; activeTag=null; renderApp(); document.getElementById('search-results').style.display='none';"><div style="font-size: 0.8rem; color: var(--text-secondary);">${p.content.substring(0, 40)}...</div></div>`).join(''); }
         if (!html) html = '<div class="search-item">No results found.</div>';
         resultsDiv.innerHTML = html;
     }, 300);
@@ -392,26 +206,8 @@ window.handleSearchInput = function(e) {
 
 window.showVerifyModal = function() { document.getElementById('verify-modal').style.display = 'flex'; document.getElementById('verify-step-1').style.display = 'block'; document.getElementById('verify-step-2').style.display = 'none'; }
 window.closeVerifyModal = function() { document.getElementById('verify-modal').style.display = 'none'; }
-window.sendVerificationCode = async function() {
-    const email = document.getElementById('verify-email').value;
-    if (!email.endsWith('@360-search.com')) return alert('Email must end in @360-search.com');
-    const btn = document.querySelector('#verify-step-1 button'); btn.innerText = 'Sending...'; btn.disabled = true;
-    try {
-        const { error } = await sb.functions.invoke('send-verification', { body: { email, userId: currentUser.id }, method: 'POST' });
-        if (error) throw error;
-        document.getElementById('verify-step-1').style.display = 'none'; document.getElementById('verify-step-2').style.display = 'block';
-    } catch (err) { alert('Failed to send code: ' + err.message); btn.innerText = 'Send Code'; btn.disabled = false; }
-}
-window.confirmVerificationCode = async function() {
-    const code = document.getElementById('verify-code-input').value;
-    const btn = document.querySelector('#verify-step-2 button'); btn.innerText = 'Verifying...'; btn.disabled = true;
-    try {
-        const { data, error } = await sb.from('csns_email_verifications').select('*').eq('user_id', currentUser.id).eq('code', code).order('created_at', { ascending: false }).limit(1).single();
-        if (error || !data) throw new Error('Invalid code.');
-        const { data: updatedProfile } = await sb.from('csns_profiles').update({ is_verified: true, is_premium: true }).eq('id', currentUser.id).select().single();
-        currentUser = updatedProfile; closeVerifyModal(); renderApp();
-    } catch (err) { alert(err.message); btn.innerText = 'Verify'; btn.disabled = false; }
-}
+window.sendVerificationCode = async function() { const email = document.getElementById('verify-email').value; if (!email.endsWith('@360-search.com')) return alert('Email must end in @360-search.com'); const btn = document.querySelector('#verify-step-1 button'); btn.innerText = 'Sending...'; btn.disabled = true; try { const { error } = await sb.functions.invoke('send-verification', { body: { email, userId: currentUser.id }, method: 'POST' }); if (error) throw error; document.getElementById('verify-step-1').style.display = 'none'; document.getElementById('verify-step-2').style.display = 'block'; } catch (err) { alert('Failed to send code: ' + err.message); btn.innerText = 'Send Code'; btn.disabled = false; } }
+window.confirmVerificationCode = async function() { const code = document.getElementById('verify-code-input').value; const btn = document.querySelector('#verify-step-2 button'); btn.innerText = 'Verifying...'; btn.disabled = true; try { const { data, error } = await sb.from('csns_email_verifications').select('*').eq('user_id', currentUser.id).eq('code', code).order('created_at', { ascending: false }).limit(1).single(); if (error || !data) throw new Error('Invalid code.'); const { data: updatedProfile } = await sb.from('csns_profiles').update({ is_verified: true, is_premium: true }).eq('id', currentUser.id).select().single(); currentUser = updatedProfile; closeVerifyModal(); renderApp(); } catch (err) { alert(err.message); btn.innerText = 'Verify'; btn.disabled = false; } }
 
 window.saveProfileSettings = async function() {
     const { data, error } = await sb.from('csns_profiles').update({ 
@@ -433,23 +229,8 @@ window.saveProfileSettings = async function() {
 window.setProfileTab = function(tab) { profileTab = tab; renderApp(); }
 window.setSettingsTab = function(tab) { settingsTab = tab; renderApp(); }
 
-window.createCommunity = async function() {
-    const name = prompt('Enter community name (e.g., react, rust):');
-    if (!name) return;
-    const { error } = await sb.from('csns_communities').insert({ name: name.toLowerCase(), description: 'A community for ' + name, creator_id: currentUser.id });
-    if (error) { alert('Error creating community: ' + error.message); return; }
-    alert('Community created!'); renderCommunities();
-}
-
-// FIX: Renamed from createEvent to createNewEvent to avoid colliding with native browser API
-window.createNewEvent = async function() {
-    const title = prompt('Event title:'); if (!title) return;
-    const date = prompt('Event date (YYYY-MM-DDTHH:MM):'); if (!date) return;
-    const url = prompt('Event URL (optional):');
-    const { error } = await sb.from('csns_events').insert({ user_id: currentUser.id, title, event_date: date, url });
-    if (error) { alert('Error creating event: ' + error.message); return; }
-    alert('Event created!'); renderEvents();
-}
+window.createCommunity = async function() { const name = prompt('Enter community name (e.g., react, rust):'); if (!name) return; const { error } = await sb.from('csns_communities').insert({ name: name.toLowerCase(), description: 'A community for ' + name, creator_id: currentUser.id }); if (error) { alert('Error creating community: ' + error.message); return; } alert('Community created!'); renderCommunities(); }
+window.createNewEvent = async function() { const title = prompt('Event title:'); if (!title) return; const date = prompt('Event date (YYYY-MM-DDTHH:MM):'); if (!date) return; const url = prompt('Event URL (optional):'); const { error } = await sb.from('csns_events').insert({ user_id: currentUser.id, title, event_date: date, url }); if (error) { alert('Error creating event: ' + error.message); return; } alert('Event created!'); renderEvents(); }
 
 async function renderApp() {
     if (localStorage.getItem('theme') === 'light' && !document.body.classList.contains('light-theme')) document.body.classList.add('light-theme');
@@ -464,8 +245,6 @@ async function renderApp() {
     else if (currentView === 'events') await renderEvents();
     else if (currentView === 'settings') await renderSettings();
     else await renderFeed();
-    
-    // Always attempt to fetch/populate trending repos on every page render
     fetchTrendingRepos();
 }
 
@@ -474,13 +253,7 @@ function renderLayout(centerContent, activeNav = 'home') {
     return `
         <div class="main-layout" onclick="document.getElementById('notif-dropdown')?.classList.remove('active'); document.getElementById('search-results')?.style.setProperty('display', 'none')">
             <div id="quote-modal" class="modal-overlay" style="display: none;"><div class="modal-content"><div class="modal-header"><h2 class="modal-title">Quote Post</h2><button class="modal-close" onclick="closeQuoteModal()">&times;</button></div><textarea id="quote-content" class="modal-input modal-textarea" placeholder="Add a comment..." rows="4"></textarea><div style="display: flex; justify-content: flex-end; margin-top: 1rem;"><button class="btn btn-primary btn-sm" onclick="submitQuote()">Post</button></div></div></div>
-            <div id="verify-modal" class="modal-overlay" style="display: none;">
-                <div class="modal-content">
-                    <div class="modal-header"><h2 class="modal-title">Get Verified</h2><button class="modal-close" onclick="closeVerifyModal()">&times;</button></div>
-                    <div id="verify-step-1" class="verify-step"><p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1rem;">Enter your @360-search.com email to receive a verification code.</p><input id="verify-email" type="email" class="modal-input" placeholder="yourname@360-search.com"><button onclick="sendVerificationCode()" class="btn btn-primary" style="width: 100%;">Send Code</button></div>
-                    <div id="verify-step-2" class="verify-step" style="display: none;"><p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1rem;">Enter the 6-digit code sent to your email.</p><input id="verify-code-input" type="text" maxlength="6" class="modal-input verify-code-input" placeholder="123456"><button onclick="confirmVerificationCode()" class="btn btn-primary" style="width: 100%;">Verify</button></div>
-                </div>
-            </div>
+            <div id="verify-modal" class="modal-overlay" style="display: none;"><div class="modal-content"><div class="modal-header"><h2 class="modal-title">Get Verified</h2><button class="modal-close" onclick="closeVerifyModal()">&times;</button></div><div id="verify-step-1" class="verify-step"><p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1rem;">Enter your @360-search.com email to receive a verification code.</p><input id="verify-email" type="email" class="modal-input" placeholder="yourname@360-search.com"><button onclick="sendVerificationCode()" class="btn btn-primary" style="width: 100%;">Send Code</button></div><div id="verify-step-2" class="verify-step" style="display: none;"><p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1rem;">Enter the 6-digit code sent to your email.</p><input id="verify-code-input" type="text" maxlength="6" class="modal-input verify-code-input" placeholder="123456"><button onclick="confirmVerificationCode()" class="btn btn-primary" style="width: 100%;">Verify</button></div></div></div>
             <aside class="left-sidebar">
                 <div class="logo"><svg style="width: 28px; height: 28px; color: var(--accent-primary);" fill="currentColor" viewBox="0 0 24 24"><path d="M13 2L3 14h7v8l10-12h-7V2z"/></svg> CodeSNS</div>
                 <nav style="flex: 1;">
@@ -505,7 +278,7 @@ function renderLayout(centerContent, activeNav = 'home') {
                         </div>
                         <div id="notif-dropdown" class="notif-dropdown"></div>
                     </div>
-                    <a class="nav-item logout-btn" onclick="logout()"><svg style="width: 24px; height: 24px;" fill="none; stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg><span>Logout</span></a>
+                    <a class="nav-item logout-btn" onclick="logout()"><svg style="width: 24px; height: 24px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg><span>Logout</span></a>
                 ` : `<div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: auto; padding: 0 0.5rem;"><button onclick="loginWithGithub()" class="btn btn-ghost btn-sm" style="width: 100%; justify-content: center;">GitHub</button><button onclick="loginWithGitlab()" class="btn btn-ghost btn-sm" style="width: 100%; justify-content: center;">GitLab</button></div>`}
             </aside>
             <main class="center-feed">${centerContent}</main>
@@ -522,12 +295,11 @@ function renderFeedContent() {
     let filteredPosts = feedCache;
     if (activeTag) filteredPosts = feedCache.filter(p => p.content.toLowerCase().includes(`#${activeTag.toLowerCase()}`));
     else if (activeFeedTab === 'trending') filteredPosts = [...feedCache].sort((a, b) => (b.csns_likes.length + b.csns_reactions.length) - (a.csns_likes.length + a.csns_reactions.length));
-    
     const feedEl = document.getElementById('feed');
     if (feedEl) {
         feedEl.innerHTML = filteredPosts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No posts found.</div>';
         if (hasMorePosts) feedEl.innerHTML += '<div id="infinite-scroll-sentinel" style="padding: 2rem; text-align: center; color: var(--text-muted);">Loading more...</div>';
-        applySyntaxHighlighting();
+        applySyntaxHighlighting(); initRepoStats();
     }
 }
 
@@ -563,48 +335,13 @@ async function renderFeed() {
     fetchFeedPosts(false);
 }
 
-async function renderJobs() {
-    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Developer Jobs</h1></header><div id="jobs-feed" style="padding: 1rem; text-align: center; color: var(--text-muted);">Fetching remote jobs...</div>`, 'jobs');
-    try {
-        const res = await fetch('https://www.arbeitnow.com/api/job-board-api');
-        const data = await res.json();
-        document.getElementById('jobs-feed').innerHTML = data.data.slice(0, 20).map(job => `<a href="${job.url}" target="_blank" class="job-item"><div class="job-title">${job.title}</div><div class="job-meta"><span>${job.company_name}</span><span>${job.location}</span>${job.remote ? '<span>Remote</span>' : ''}</div></a>`).join('');
-    } catch (e) { document.getElementById('jobs-feed').innerHTML = '<div style="padding: 2rem; text-align: center;">Failed to load jobs.</div>'; }
-}
+async function renderJobs() { app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Developer Jobs</h1></header><div id="jobs-feed" style="padding: 1rem; text-align: center; color: var(--text-muted);">Fetching remote jobs...</div>`, 'jobs'); try { const res = await fetch('https://www.arbeitnow.com/api/job-board-api'); const data = await res.json(); document.getElementById('jobs-feed').innerHTML = data.data.slice(0, 20).map(job => `<a href="${job.url}" target="_blank" class="job-item"><div class="job-title">${job.title}</div><div class="job-meta"><span>${job.company_name}</span><span>${job.location}</span>${job.remote ? '<span>Remote</span>' : ''}</div></a>`).join(''); } catch (e) { document.getElementById('jobs-feed').innerHTML = '<div style="padding: 2rem; text-align: center;">Failed to load jobs.</div>'; } }
 
-async function renderSaved() {
-    if (!currentUser) { app.innerHTML = renderLayout('<div class="empty-state">Sign in to view saved posts.</div>', 'saved'); return; }
-    const { data: bookmarks } = await sb.from('csns_bookmarks').select('post_id').eq('user_id', currentUser.id);
-    const postIds = bookmarks.map(b => b.post_id);
-    let posts = [];
-    if (postIds.length > 0) {
-        const { data } = await sb.from('csns_posts').select(`*, csns_profiles:user_id (*), csns_post_repos (*), csns_likes (user_id), csns_reactions (user_id, type), csns_bookmarks (user_id), parent:parent_post_id (*, csns_profiles:user_id (*)), csns_polls (*, csns_poll_votes (user_id, option_index))`).in('id', postIds).order('created_at', { ascending: false });
-        posts = data || [];
-    }
-    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Saved Posts</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No saved posts yet.</div>'}</div>`, 'saved');
-    applySyntaxHighlighting();
-}
+async function renderSaved() { if (!currentUser) { app.innerHTML = renderLayout('<div class="empty-state">Sign in to view saved posts.</div>', 'saved'); return; } const { data: bookmarks } = await sb.from('csns_bookmarks').select('post_id').eq('user_id', currentUser.id); const postIds = bookmarks.map(b => b.post_id); let posts = []; if (postIds.length > 0) { const { data } = await sb.from('csns_posts').select(`*, csns_profiles:user_id (*), csns_post_repos (*), csns_likes (user_id), csns_reactions (user_id, type), csns_bookmarks (user_id), parent:parent_post_id (*, csns_profiles:user_id (*)), csns_polls (*, csns_poll_votes (user_id, option_index))`).in('id', postIds).order('created_at', { ascending: false }); posts = data || []; } app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Saved Posts</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No saved posts yet.</div>'}</div>`, 'saved'); applySyntaxHighlighting(); initRepoStats(); }
 
-async function renderFollowing() {
-    if (!currentUser) { app.innerHTML = renderLayout('<div class="empty-state">Sign in to see following feed.</div>', 'following'); return; }
-    const { data: follows } = await sb.from('csns_follows').select('following_id').eq('follower_id', currentUser.id);
-    const followingIds = follows.map(f => f.following_id);
-    let posts = [];
-    if (followingIds.length > 0) {
-        const { data } = await sb.from('csns_posts').select(`*, csns_profiles:user_id (*), csns_post_repos (*), csns_likes (user_id), csns_reactions (user_id, type), csns_bookmarks (user_id), parent:parent_post_id (*, csns_profiles:user_id (*)), csns_polls (*, csns_poll_votes (user_id, option_index))`).in('user_id', followingIds).order('created_at', { ascending: false });
-        posts = data || [];
-    }
-    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Following</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">Feed is empty.</div>'}</div>`, 'following');
-    applySyntaxHighlighting();
-}
+async function renderFollowing() { if (!currentUser) { app.innerHTML = renderLayout('<div class="empty-state">Sign in to see following feed.</div>', 'following'); return; } const { data: follows } = await sb.from('csns_follows').select('following_id').eq('follower_id', currentUser.id); const followingIds = follows.map(f => f.following_id); let posts = []; if (followingIds.length > 0) { const { data } = await sb.from('csns_posts').select(`*, csns_profiles:user_id (*), csns_post_repos (*), csns_likes (user_id), csns_reactions (user_id, type), csns_bookmarks (user_id), parent:parent_post_id (*, csns_profiles:user_id (*)), csns_polls (*, csns_poll_votes (user_id, option_index))`).in('user_id', followingIds).order('created_at', { ascending: false }); posts = data || []; } app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Following</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('() || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">Feed is empty.</div>'}</div>`, 'following'); applySyntaxHighlighting(); initRepoStats(); }
 
-async function renderNews() {
-    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Dev News</h1></header><div id="news-feed" style="padding: 1rem; text-align: center; color: var(--text-muted);">Fetching top tech articles...</div>`, 'news');
-    try {
-        const res = await fetch('https://dev.to/api/articles?per_page=20&top=7'); const items = await res.json();
-        document.getElementById('news-feed').innerHTML = items.map(item => `<a href="${item.url}" target="_blank" class="news-item">${item.cover_image ? `<img src="${item.cover_image}" class="news-image" alt="${item.title}">` : ''}<div class="news-content"><div class="news-title">${item.title}</div><div class="news-meta"><span class="news-tag">#${item.tag_list[0] || 'dev'}</span><span>by ${item.user.name}</span></div></div></a>`).join('');
-    } catch (e) { document.getElementById('news-feed').innerHTML = '<div style="padding: 2rem; text-align: center;">Failed to load news.</div>'; }
-}
+async function renderNews() { app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Dev News</h1></header><div id="news-feed" style="padding: 1rem; text-align: center; color: var(--text-muted);">Fetching top tech articles...</div>`, 'news'); try { const res = await fetch('https://dev.to/api/articles?per_page=20&top=7'); const items = await res.json(); document.getElementById('news-feed').innerHTML = items.map(item => `<a href="${item.url}" target="_blank" class="news-item">${item.cover_image ? `<img src="${item.cover_image}" class="news-image" alt="${item.title}">` : ''}<div class="news-content"><div class="news-title">${item.title}</div><div class="news-meta"><span class="news-tag">#${item.tag_list[0] || 'dev'}</span><span>by ${item.user.name}</span></div></div></a>`).join(''); } catch (e) { document.getElementById('news-feed').innerHTML = '<div style="padding: 2rem; text-align: center;">Failed to load news.</div>'; } }
 
 async function renderMessages() {
     if (!currentUser) { app.innerHTML = renderLayout('<div class="empty-state">Sign in to view messages.</div>', 'messages'); return; }
@@ -612,82 +349,39 @@ async function renderMessages() {
     const conversations = {};
     messages.forEach(msg => { const otherUser = msg.sender_id === currentUser.id ? msg.receiver : msg.sender; if (!conversations[otherUser.id]) conversations[otherUser.id] = { user: otherUser, lastMessage: msg }; });
     const conversationList = Object.values(conversations).sort((a, b) => new Date(b.lastMessage.created_at) - new Date(a.lastMessage.created_at));
-    
     let chatHtml = `<div class="chat-window"><div class="empty-state"><h3>Select a conversation</h3></div></div>`;
     if (activeChatUser) {
         const { data: chatMessages } = await sb.from('csns_messages').select('*, sender:sender_id(*)').or(`and(sender_id.eq.${currentUser.id},receiver_id.eq.${activeChatUser}),and(sender_id.eq.${activeChatUser},receiver_id.eq.${currentUser.id})`).order('created_at', { ascending: true });
         const otherProfile = conversationList.find(c => c.user.id === activeChatUser)?.user || (await sb.from('csns_profiles').select('*').eq('id', activeChatUser).single()).data;
-        chatHtml = `<div class="chat-window">
-            <div class="chat-header">
-                <img src="${otherProfile?.avatar_url || `https://ui-avatars.com/api/?name=${otherProfile?.username}`}" class="post-avatar" style="width: 32px; height: 32px;">
-                <span>${otherProfile?.full_name || otherProfile?.username}</span>
-            </div>
-            <div class="chat-messages">
-                ${chatMessages.map(msg => `<div class="message-bubble ${msg.sender_id === currentUser.id ? 'message-sent' : 'message-received'}">${msg.content}</div>`).join('')}
-            </div>
-            <div class="chat-input-area">
-                <input id="dm-input" class="chat-input" placeholder="Type a message..." onkeypress="if(event.key==='Enter') sendDm()">
-                <button onclick="sendDm()" class="btn btn-primary btn-sm">Send</button>
-            </div>
-        </div>`;
+        chatHtml = `<div class="chat-window"><div class="chat-header"><img src="${otherProfile?.avatar_url || `https://ui-avatars.com/api/?name=${otherProfile?.username}`}" class="post-avatar" style="width: 32px; height: 32px;"><span>${otherProfile?.full_name || otherProfile?.username}</span></div><div class="chat-messages">${chatMessages.map(msg => `<div class="message-bubble ${msg.sender_id === currentUser.id ? 'message-sent' : 'message-received'}">${msg.content}</div>`).join('')}</div><div class="chat-input-area"><input id="dm-input" class="chat-input" placeholder="Type a message..." onkeypress="if(event.key==='Enter') sendDm()"><button onclick="sendDm()" class="btn btn-primary btn-sm">Send</button></div></div>`;
     }
-    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Messages</h1></header><div class="chat-layout"><div class="conversation-list">${conversationList.length > 0 ? conversationList.map(c => `<div class="conversation-item ${activeChatUser === c.user.id ? 'active' : ''}" onclick="selectConversation('${c.user.id}')"><img src="${c.user.avatar_url || `https://ui-avatars.com/api/?name=${c.user.username}`}" class="post-avatar" style="width: 40px; height: 40px;"><div style="overflow: hidden;"><div style="font-weight: 700; font-size: 0.9rem;">${c.user.full_name || c.user.username}</div><div style="font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${c.lastMessage.content}</div></div></div>`).join('') : '<div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">No conversations.</div>'}</div>${chatHtml}</div>`, 'messages');
+    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Messages</h1></header><div class="chat-layout"><div class="conversation-list">${conversationList.length > 0 ? conversationList.map(c => `<div class="conversation-item ${activeChatUser === c.user.id ? 'active' : ''}" onclick="selectConversation('${c.user.id}')"><img src="${c.user.avatar_url || `https://ui-avatars.com/api/?name=${c.user.username}`}" class="post-avatar" style="width: 40px; height: 40px;"><div style="overflow: hidden;"><div style="font-weight: 700; font-size: 0.9rem;">${c.user.full_name || c.user.username}</div><div style="font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${c.lastMessage.content}</div></div></div>`).join('() : '<div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">No conversations.</div>'}</div>${chatHtml}</div>`, 'messages');
 }
 
 window.selectConversation = function(userId) { activeChatUser = userId; renderMessages(); }
 window.sendDm = async function() { const input = document.getElementById('dm-input'); if (!input.value.trim() || !activeChatUser) return; const { error } = await sb.from('csns_messages').insert({ sender_id: currentUser.id, receiver_id: activeChatUser, content: input.value }); if (error) alert('Error sending message: ' + error.message); createNotification(currentUser.id, activeChatUser, 'message'); input.value = ''; renderMessages(); }
 
-async function renderCommunities() {
-    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Communities</h1><button onclick="createCommunity()" class="btn btn-primary btn-sm" style="margin-left: auto;">+ New Community</button></header><div id="communities-list"></div>`, 'communities');
-    const { data: communities, error } = await sb.from('csns_communities').select('*').order('created_at', { ascending: false });
-    const listEl = document.getElementById('communities-list');
-    if (error) { listEl.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--accent-danger);">Error loading communities: ${error.message}</div>`; return; }
-    if (!communities || communities.length === 0) { listEl.innerHTML = '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No communities yet. Create one!</div>'; return; }
-    listEl.innerHTML = communities.map(c => `<a class="community-card" onclick="searchTag('${c.name}')"><div class="community-name">c/${c.name}</div><div style="font-size: 0.9rem; color: var(--text-muted);">${c.description}</div></a>`).join('');
-}
-
-async function renderEvents() {
-    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Events</h1><button onclick="createNewEvent()" class="btn btn-primary btn-sm" style="margin-left: auto;">+ New Event</button></header><div id="events-list"></div>`, 'events');
-    const { data: events, error } = await sb.from('csns_events').select('*').order('event_date', { ascending: true });
-    const listEl = document.getElementById('events-list');
-    if (error) { listEl.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--accent-danger);">Error loading events: ${error.message}</div>`; return; }
-    if (!events || events.length === 0) { listEl.innerHTML = '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No events yet. Create one!</div>'; return; }
-    listEl.innerHTML = events.map(e => `<a href="${e.url || '#'}" target="_blank" class="event-item"><div class="event-title">${e.title}</div><div style="font-size: 0.9rem; color: var(--text-muted);">${new Date(e.event_date).toLocaleString()}</div>${e.description ? `<p style="margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);">${e.description}</p>` : ''}</a>`).join('');
-}
+async function renderCommunities() { app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Communities</h1><button onclick="createCommunity()" class="btn btn-primary btn-sm" style="margin-left: auto;">+ New Community</button></header><div id="communities-list"></div>`, 'communities'); const { data: communities, error } = await sb.from('csns_communities').select('*').order('created_at', { ascending: false }); const listEl = document.getElementById('communities-list'); if (error) { listEl.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--accent-danger);">Error loading communities: ${error.message}</div>`; return; } if (!communities || communities.length === 0) { listEl.innerHTML = '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No communities yet. Create one!</div>'; return; } listEl.innerHTML = communities.map(c => `<a class="community-card" onclick="searchTag('${c.name}')"><div class="community-name">c/${c.name}</div><div style="font-size: 0.9rem; color: var(--text-muted);">${c.description}</div></a>`).join(''); }
+async function renderEvents() { app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Events</h1><button onclick="createNewEvent()" class="btn btn-primary btn-sm" style="margin-left: auto;">+ New Event</button></header><div id="events-list"></div>`, 'events'); const { data: events, error } = await sb.from('csns_events').select('*').order('event_date', { ascending: true }); const listEl = document.getElementById('events-list'); if (error) { listEl.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--accent-danger);">Error loading events: ${error.message}</div>`; return; } if (!events || events.length === 0) { listEl.innerHTML = '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No events yet. Create one!</div>'; return; } listEl.innerHTML = events.map(e => `<a href="${e.url || '#'}" target="_blank" class="event-item"><div class="event-title">${e.title}</div><div style="font-size: 0.9rem; color: var(--text-muted);">${new Date(e.event_date).toLocaleString()}</div>${e.description ? `<p style="margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);">${e.description}</p>` : ''}</a>`).join(''); }
 
 async function renderSettings() {
     if (!currentUser) { app.innerHTML = renderLayout('<div class="empty-state">Sign in to view settings.</div>', 'settings'); return; }
-    let centerContent = `
-        <header class="page-header"><h1 class="page-title">Settings</h1></header>
-        <div class="settings-layout">
-            <div class="settings-nav">
-                <div class="settings-tab ${settingsTab === 'profile' ? 'active' : ''}" onclick="setSettingsTab('profile')">Profile</div>
-                <div class="settings-tab ${settingsTab === 'readme' ? 'active' : ''}" onclick="setSettingsTab('readme')">Readme</div>
-            </div>
-            <div style="flex: 1;">
-    `;
+    let centerContent = `<header class="page-header"><h1 class="page-title">Settings</h1></header><div class="settings-layout"><div class="settings-nav"><div class="settings-tab ${settingsTab === 'profile' ? 'active' : ''}" onclick="setSettingsTab('profile')">Profile</div><div class="settings-tab ${settingsTab === 'readme' ? 'active' : ''}" onclick="setSettingsTab('readme')">Readme</div></div><div style="flex: 1;">`;
     if (settingsTab === 'profile') {
-        centerContent += `
-            <div class="settings-form">
-                <div class="modal-input-group"><label class="modal-label">Full Name</label><input id="settings-fullname" type="text" class="modal-input" value="${currentUser.full_name || ''}"></div>
-                <div class="modal-input-group"><label class="modal-label">Bio</label><textarea id="settings-bio" class="modal-input modal-textarea">${currentUser.bio || ''}</textarea></div>
-                <div class="modal-input-group"><label class="modal-label">Accent Color</label><input id="settings-accent" type="color" class="modal-input" style="height: 40px; padding: 4px;" value="${currentUser.accent_color || '#00d4ff'}"></div>
-                <div class="modal-input-group"><label class="modal-label">Avatar Image URL</label><input id="settings-avatar" type="text" class="modal-input" value="${currentUser.avatar_url || ''}"></div>
-                <div class="modal-input-group"><label class="modal-label">Banner Image URL</label><input id="settings-banner" type="text" class="modal-input" value="${currentUser.banner_url || ''}"></div>
-                <div class="modal-input-group"><label class="modal-label">GitHub URL</label><input id="settings-github" type="text" class="modal-input" value="${currentUser.github_url || ''}"></div>
-                <div class="modal-input-group"><label class="modal-label">GitLab URL</label><input id="settings-gitlab" type="text" class="modal-input" value="${currentUser.gitlab_url || ''}"></div>
-                <div class="modal-input-group"><label class="modal-label">LinkedIn URL</label><input id="settings-linkedin" type="text" class="modal-input" value="${currentUser.linkedin_url || ''}"></div>
-                <div class="modal-input-group"><label class="modal-label">Twitter URL</label><input id="settings-twitter" type="text" class="modal-input" value="${currentUser.twitter_url || ''}"></div>
-                <button onclick="saveProfileSettings()" class="btn btn-primary">Save Profile</button>
-            </div>
-        `;
+        centerContent += `<div class="settings-form">
+            <div class="modal-input-group"><label class="modal-label">Full Name</label><input id="settings-fullname" type="text" class="modal-input" value="${currentUser.full_name || ''}"></div>
+            <div class="modal-input-group"><label class="modal-label">Bio</label><textarea id="settings-bio" class="modal-input modal-textarea">${currentUser.bio || ''}</textarea></div>
+            <div class="modal-input-group"><label class="modal-label">Accent Color</label><input id="settings-accent" type="color" class="modal-input" style="height: 40px; padding: 4px;" value="${currentUser.accent_color || '#00d4ff'}"></div>
+            <div class="modal-input-group"><label class="modal-label">Avatar Image URL</label><input id="settings-avatar" type="text" class="modal-input" value="${currentUser.avatar_url || ''}"></div>
+            <div class="modal-input-group"><label class="modal-label">Banner Image URL</label><input id="settings-banner" type="text" class="modal-input" value="${currentUser.banner_url || ''}"></div>
+            <div class="modal-input-group"><label class="modal-label">GitHub URL</label><input id="settings-github" type="text" class="modal-input" value="${currentUser.github_url || ''}"></div>
+            <div class="modal-input-group"><label class="modal-label">GitLab URL</label><input id="settings-gitlab" type="text" class="modal-input" value="${currentUser.gitlab_url || ''}"></div>
+            <div class="modal-input-group"><label class="modal-label">LinkedIn URL</label><input id="settings-linkedin" type="text" class="modal-input" value="${currentUser.linkedin_url || ''}"></div>
+            <div class="modal-input-group"><label class="modal-label">Twitter URL</label><input id="settings-twitter" type="text" class="modal-input" value="${currentUser.twitter_url || ''}"></div>
+            <button onclick="saveProfileSettings()" class="btn btn-primary">Save Profile</button>
+        </div>`;
     } else if (settingsTab === 'readme') {
-        centerContent += `
-            <div class="settings-form">
-                <div class="modal-input-group"><label class="modal-label">Profile Readme (Markdown supported)</label><textarea id="settings-readme" class="modal-input" style="min-height: 300px; font-family: monospace;">${currentUser.readme || ''}</textarea></div>
-                <button onclick="saveProfileSettings()" class="btn btn-primary">Save Readme</button>
-            </div>
-        `;
+        centerContent += `<div class="settings-form"><div class="modal-input-group"><label class="modal-label">Profile Readme (Advanced Markdown & HTML supported)</label><textarea id="settings-readme" class="modal-input" style="min-height: 400px; font-family: monospace;">${currentUser.readme || ''}</textarea></div><button onclick="saveProfileSettings()" class="btn btn-primary">Save Readme</button></div>`;
     }
     centerContent += `</div></div>`;
     app.innerHTML = renderLayout(centerContent, 'settings');
@@ -696,47 +390,21 @@ async function renderSettings() {
 async function renderProfile(profileId) {
     const { data: profile } = await sb.from('csns_profiles').select('*').eq('id', profileId).single();
     const { data: allPosts } = await sb.from('csns_posts').select(`*, csns_profiles:user_id (*), csns_post_repos (*), csns_likes (user_id), csns_reactions (user_id, type), csns_bookmarks (user_id), parent:parent_post_id (*, csns_profiles:user_id (*)), csns_polls (*, csns_poll_votes (user_id, option_index))`).eq('user_id', profileId).order('created_at', { ascending: false });
-    
-    let posts = allPosts.filter(p => !p.pinned);
-    let pinnedPosts = allPosts.filter(p => p.pinned);
-    if (profileSort === 'oldest') posts.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
-    else if (profileSort === 'popular') posts.sort((a,b) => b.csns_likes.length - a.csns_likes.length);
-
+    let posts = allPosts.filter(p => !p.pinned); let pinnedPosts = allPosts.filter(p => p.pinned);
+    if (profileSort === 'oldest') posts.sort((a,b) => new Date(a.created_at) - new Date(b.created_at)); else if (profileSort === 'popular') posts.sort((a,b) => b.csns_likes.length - a.csns_likes.length);
     let isFollowing = false;
     if (currentUser) { const { data } = await sb.from('csns_follows').select('*').match({ follower_id: currentUser.id, following_id: profileId }); isFollowing = data.length > 0; }
     const { count: csnsFollowers } = await sb.from('csns_follows').select('*', { count: 'exact', head: true }).eq('following_id', profileId);
     const { count: csnsFollowing } = await sb.from('csns_follows').select('*', { count: 'exact', head: true }).eq('follower_id', profileId);
-    
     let badgeHtml = ''; let totalLikes = 0; let totalStars = 0; let ghFollowers = 0; let ghRepos = 0;
     posts.forEach(p => totalLikes += p.csns_likes.length);
-    let achievements = [];
-    if (posts.length > 0) achievements.push({ name: 'First Post', icon: 'post' });
-    if (totalLikes >= 10) achievements.push({ name: 'Getting Likes', icon: 'heart' });
-    if (profile.is_premium) achievements.push({ name: 'Premium', icon: 'crown' });
-
     let metaItems = [];
     if (profile.github_url) metaItems.push(`<a href="${profile.github_url}" target="_blank" class="profile-meta-item">GitHub</a>`);
     if (profile.gitlab_url) metaItems.push(`<a href="${profile.gitlab_url}" target="_blank" class="profile-meta-item">GitLab</a>`);
-
     if (profile.github_url) {
         const ghUsername = profile.github_url.split('github.com/')[1];
-        if (ghUsername) {
-            try {
-                const ghRes = await fetch(`https://api.github.com/users/${ghUsername}`);
-                const ghData = await ghRes.json();
-                ghFollowers = ghData.followers || 0; ghRepos = ghData.public_repos || 0;
-                const reposRes = await fetch(`https://api.github.com/users/${ghUsername}/repos?per_page=100`);
-                const reposData = await reposRes.json();
-                if (Array.isArray(reposData)) totalStars = reposData.reduce((acc, r) => acc + r.stargazers_count, 0);
-                const score = ghFollowers + ghRepos + totalStars;
-                let badgeClass = 'badge-junior'; let badgeText = 'Junior Dev';
-                if (score > 50) { badgeClass = 'badge-mid'; badgeText = 'Mid Dev'; }
-                if (score > 200) { badgeClass = 'badge-senior'; badgeText = 'Senior Dev'; }
-                badgeHtml = `<span class="dev-badge ${badgeClass}">${badgeText}</span>`;
-            } catch(e) {}
-        }
+        if (ghUsername) { try { const ghRes = await fetch(`https://api.github.com/users/${ghUsername}`); const ghData = await ghRes.json(); ghFollowers = ghData.followers || 0; ghRepos = ghData.public_repos || 0; const reposRes = await fetch(`https://api.github.com/users/${ghUsername}/repos?per_page=100`); const reposData = await reposRes.json(); if (Array.isArray(reposData)) totalStars = reposData.reduce((acc, r) => acc + r.stargazers_count, 0); const score = ghFollowers + ghRepos + totalStars; let badgeClass = 'badge-junior'; let badgeText = 'Junior Dev'; if (score > 50) { badgeClass = 'badge-mid'; badgeText = 'Mid Dev'; } if (score > 200) { badgeClass = 'badge-senior'; badgeText = 'Senior Dev'; } badgeHtml = `<span class="dev-badge ${badgeClass}">${badgeText}</span>`; } catch(e) {} }
     }
-
     const verifiedHtml = profile.is_verified ? `<span class="verified-badge"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span>` : '';
     
     let tabContent = '';
@@ -744,7 +412,18 @@ async function renderProfile(profileId) {
         let postsHtml = (pinnedPosts.length > 0 ? pinnedPosts.map(p => renderPostCard(p)).join('') : '') + posts.map(p => renderPostCard(p)).join('');
         tabContent = postsHtml || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No posts yet.</div>';
     } else if (profileTab === 'readme') {
-        tabContent = `<div style="padding: 2rem; color: var(--text-secondary); line-height: 1.6;">${profile.readme ? profile.readme.replace(/\n/g, '<br>') : 'No readme yet.'}</div>`;
+        const readmeHtml = profile.readme ? DOMPurify.sanitize(marked.parse(profile.readme)) : '<div style="padding: 2rem; color: var(--text-muted);">No readme yet.</div>';
+        tabContent = `<div class="readme-content">${readmeHtml}</div>`;
+    }
+
+    let socialsHtml = '';
+    if (profile.linkedin_url || profile.twitter_url || profile.github_url || profile.gitlab_url) {
+        socialsHtml = `<div class="social-icons-row" style="padding: 0 1.5rem 1.5rem;">`;
+        if (profile.github_url) socialsHtml += `<a href="${profile.github_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24" width="20" height="20"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg></a>`;
+        if (profile.gitlab_url) socialsHtml += `<a href="${profile.gitlab_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24" width="20" height="20"><path d="M23.955 13.587l-1.347-4.135-2.664-8.197a.455.455 0 00-.867 0L16.413 9.45H7.587L4.923 1.255a.455.455 0 00-.867 0L1.392 9.452.045 13.587a.924.924 0 00.331 1.023L12 23.054l11.624-8.443a.92.92 0 00.331-1.024"/></svg></a>`;
+        if (profile.linkedin_url) socialsHtml += `<a href="${profile.linkedin_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24" width="20" height="20"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg></a>`;
+        if (profile.twitter_url) socialsHtml += `<a href="${profile.twitter_url}" target="_blank" class="social-link"><svg fill="currentColor" viewBox="0 0 24 24" width="20" height="20"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>`;
+        socialsHtml += `</div>`;
     }
 
     const centerContent = `
@@ -764,6 +443,7 @@ async function renderProfile(profileId) {
                 <p style="color: var(--text-muted);" class="font-mono">@${profile.username}</p>
                 ${profile.bio ? `<p class="profile-bio" style="margin-top: 0.5rem;">${profile.bio}</p>` : ''}
             </div>
+            ${socialsHtml}
             <div class="profile-section">
                 <div class="section-label">CodeSNS Stats</div>
                 <div class="stats-grid">
@@ -772,15 +452,7 @@ async function renderProfile(profileId) {
                     <div class="stat-box"><div class="stat-value">${csnsFollowing || 0}</div><div class="stat-label">Following</div></div>
                 </div>
             </div>
-            ${profile.github_url ? `
-            <div class="profile-section">
-                <div class="section-label">GitHub Stats</div>
-                <div class="stats-grid">
-                    <div class="stat-box"><div class="stat-value">${ghRepos}</div><div class="stat-label">Repos</div></div>
-                    <div class="stat-box"><div class="stat-value">${totalStars}</div><div class="stat-label">Stars</div></div>
-                    <div class="stat-box"><div class="stat-value">${ghFollowers}</div><div class="stat-label">Followers</div></div>
-                </div>
-            </div>` : ''}
+            ${profile.github_url ? `<div class="profile-section"><div class="section-label">GitHub Stats</div><div class="stats-grid"><div class="stat-box"><div class="stat-value">${ghRepos}</div><div class="stat-label">Repos</div></div><div class="stat-box"><div class="stat-value">${totalStars}</div><div class="stat-label">Stars</div></div><div class="stat-box"><div class="stat-value">${ghFollowers}</div><div class="stat-label">Followers</div></div></div></div>` : ''}
             ${metaItems.length > 0 ? `<div class="profile-section"><div class="section-label">Details</div><div class="profile-meta-row" style="border: none; padding: 0; gap: 1rem 1.5rem;">${metaItems.join('')}</div></div>` : ''}
         </div>
         <div class="profile-tabs">
@@ -790,7 +462,7 @@ async function renderProfile(profileId) {
         <div id="feed">${tabContent}</div>
     `;
     app.innerHTML = renderLayout(centerContent, 'profile');
-    applySyntaxHighlighting();
+    applySyntaxHighlighting(); initRepoStats();
 }
 
 function applySyntaxHighlighting() { document.querySelectorAll('pre code').forEach(block => { if (!block.dataset.highlighted) { hljs.highlightElement(block); block.dataset.highlighted = 'true'; } }); }
@@ -799,46 +471,21 @@ function renderPostCard(post) {
     const isSaved = currentUser ? post.csns_bookmarks.some(b => b.user_id === currentUser.id) : false;
     const isLiked = currentUser ? post.csns_likes.some(l => l.user_id === currentUser.id) : false;
     const timeAgo = new Date(post.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' });
-    
-    let contentHtml = post.content
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/```([\s\S]*?)```/g, (match, p1) => `<div class="code-block-wrapper"><div class="code-actions"><button class="code-btn" onclick="copyCode(this)">Copy</button><button class="code-btn" onclick="runCode(this)">Run</button></div><pre class="code-block"><code class="hljs">${p1}</code></pre><div class="code-output"></div></div>`)
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        .replace(/#(\w+)/g, '<a class="hashtag" onclick="searchTag(\'$1\')">#$1</a>')
-        .replace(/\n/g, '<br>');
-        
+    let contentHtml = post.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/```([\s\S]*?)```/g, (match, p1) => `<div class="code-block-wrapper"><div class="code-actions"><button class="code-btn" onclick="copyCode(this)">Copy</button><button class="code-btn" onclick="runCode(this)">Run</button></div><pre class="code-block"><code class="hljs">${p1}</code></pre><div class="code-output"></div></div>`).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>').replace(/`([^`]+)`/g, '<code>$1</code>').replace(/#(\w+)/g, '<a class="hashtag" onclick="searchTag(\'$1\')">#$1</a>').replace(/\n/g, '<br>');
     let pollHtml = '';
     if (post.csns_polls && post.csns_polls.length > 0) {
-        const poll = post.csns_polls[0];
-        const userVoteObj = currentUser ? poll.csns_poll_votes.find(v => v.user_id === currentUser.id) : null;
-        const totalVotes = poll.csns_poll_votes.length;
+        const poll = post.csns_polls[0]; const userVoteObj = currentUser ? poll.csns_poll_votes.find(v => v.user_id === currentUser.id) : null; const totalVotes = poll.csns_poll_votes.length;
         pollHtml += '<div class="poll-container">';
         poll.options.forEach((opt, index) => {
-            const voteCount = poll.csns_poll_votes.filter(v => v.option_index === index).length;
-            const percentage = totalVotes > 0 ? Math.round((voteCount / totalVotes) * 100) : 0;
+            const voteCount = poll.csns_poll_votes.filter(v => v.option_index === index).length; const percentage = totalVotes > 0 ? Math.round((voteCount / totalVotes) * 100) : 0;
             pollHtml += `<div class="poll-option" style="margin-bottom: 0.5rem;">`;
-            if (userVoteObj || !currentUser) {
-                pollHtml += `<div style="display: flex; justify-content: space-between;"><span>${opt} ${userVoteObj && userVoteObj.option_index === index ? '(You)' : ''}</span><span>${percentage}%</span></div><div class="poll-results-bar"><div class="poll-results-fill" style="width: ${percentage}%;"></div></div>`;
-            } else {
-                pollHtml += `<button onclick="votePoll('${poll.id}', ${index})" class="poll-btn">${opt}</button>`;
-            }
+            if (userVoteObj || !currentUser) { pollHtml += `<div style="display: flex; justify-content: space-between;"><span>${opt} ${userVoteObj && userVoteObj.option_index === index ? '(You)' : ''}</span><span>${percentage}%</span></div><div class="poll-results-bar"><div class="poll-results-fill" style="width: ${percentage}%;"></div></div>`; } else { pollHtml += `<button onclick="votePoll('${poll.id}', ${index})" class="poll-btn">${opt}</button>`; }
             pollHtml += `</div>`;
         });
         pollHtml += '</div>';
     }
-
-    const emojis = [
-        { type: 'heart', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />' }, 
-        { type: 'fire', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.24 17 6.343 18.657 8 18 12 18 12s.5 1 1.5 1.5c0 0-1 2-2 3.157z" />' }
-    ];
-    const reactionHtml = emojis.map(r => {
-        const count = post.csns_reactions.filter(l => l.type === r.type).length;
-        const isActive = currentUser ? post.csns_reactions.some(l => l.user_id === currentUser.id && l.type === r.type) : false;
-        return `<button onclick="handleReaction('${post.id}', '${r.type}', '${post.user_id}')" class="action-btn ${isActive ? 'liked' : ''}"><svg style="width: 18px; height: 18px;" fill="${isActive ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24">${r.icon}</svg> ${count > 0 ? count : ''}</button>`;
-    }).join('');
-
+    const emojis = [ { type: 'heart', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />' }, { type: 'fire', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.24 17 6.343 18.657 8 18 12 18 12s.5 1 1.5 1.5c0 0-1 2-2 3.157z" />' } ];
+    const reactionHtml = emojis.map(r => { const count = post.csns_reactions.filter(l => l.type === r.type).length; const isActive = currentUser ? post.csns_reactions.some(l => l.user_id === currentUser.id && l.type === r.type) : false; return `<button onclick="handleReaction('${post.id}', '${r.type}', '${post.user_id}')" class="action-btn ${isActive ? 'liked' : ''}"><svg style="width: 18px; height: 18px;" fill="${isActive ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24">${r.icon}</svg> ${count > 0 ? count : ''}</button>`; }).join('');
     return `
         <div class="post-card fade-in" style="position: relative;" onclick="currentView='profile_${post.user_id}'; renderApp()">
             ${currentUser && currentUser.id === post.user_id ? `<button class="delete-post-btn" onclick="event.stopPropagation(); deletePost('${post.id}')"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>` : ''}
@@ -856,7 +503,7 @@ function renderPostCard(post) {
                     <div class="post-content">${contentHtml}</div>
                     ${post.image_url ? `<img src="${post.image_url}" class="post-image" alt="Post image">` : ''}
                     ${pollHtml}
-                    ${post.csns_post_repos && post.csns_post_repos.length > 0 ? post.csns_post_repos.map(repo => `<a href="${repo.repo_url}" target="_blank" class="repo-embed" data-owner="${repo.owner}" data-repo="${repo.repo_name}"><div class="repo-embed-content"><div class="repo-embed-header">${repo.platform === 'github' ? `<svg style="width: 20px; height: 20px;" fill="currentColor" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>` : `<svg style="width: 20px; height: 20px;" fill="currentColor" viewBox="0 0 24 24"><path d="M23.955 13.587l-1.347-4.135-2.664-8.197a.455.455 0 00-.867 0L16.413 9.45H7.587L4.923 1.255a.455.455 0 00-.867 0L1.392 9.452.045 13.587a.924.924 0 00.331 1.023L12 23.054l11.624-8.443a.92.92 0 00.331-1.024"/></svg>`} ${repo.owner} / ${repo.repo_name}</div><div class="repo-embed-desc font-mono">${repo.repo_url}</div><div class="repo-stats"><span class="repo-stat">Loading stats...</span></div></div></a>`).join('') : ''}
+                    ${post.csns_post_repos && post.csns_post_repos.length > 0 ? post.csns_post_repos.map(repo => `<a href="${repo.repo_url}" target="_blank" class="repo-embed" data-owner="${repo.owner}" data-repo="${repo.repo_name}"><div class="repo-embed-content"><div class="repo-embed-header">${repo.platform === 'github' ? `<svg style="width: 20px; height: 20px;" fill="currentColor" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>` : `<svg style="width: 20px; height: 20px;" fill="currentColor" viewBox="0 0 24 24"><path d="M23.955 13.587l-1.347-4.135-2.664-8.197a.455.455 0 00-.867 0L16.413 9.45H7.587L4.923 1.255a.455.455 0 00-.867 0L1.392 9.452.045 13.587a.924.924 0 00.331 1.023L12 23.054l11.624-8.443a.92.92 0 00.331-1.024"/></svg>`} ${repo.owner} / ${repo.repo_name}</div><div class="repo-embed-desc font-mono">${repo.repo_url}</div><div class="repo-stats"><span class="repo-stat">Loading stats...</span></div></div></a>`).join('() : ''}
                     <div class="post-actions">
                         <button onclick="toggleComments('${post.id}', '${post.user_id}')" class="action-btn"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg></button>
                         <button onclick="showQuoteModal('${post.id}', false)" class="action-btn"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg></button>
