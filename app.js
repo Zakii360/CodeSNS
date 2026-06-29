@@ -454,7 +454,7 @@ async function renderApp() {
     else if (currentView === 'events') await renderEvents();
     else if (currentView === 'settings') await renderSettings();
     else await renderFeed();
-    fetchTrendingRepos(); // Ensure trending repos load globally
+    fetchTrendingRepos();
 }
 
 function renderLayout(centerContent, activeNav = 'home') {
@@ -600,11 +600,25 @@ async function renderMessages() {
     const conversations = {};
     messages.forEach(msg => { const otherUser = msg.sender_id === currentUser.id ? msg.receiver : msg.sender; if (!conversations[otherUser.id]) conversations[otherUser.id] = { user: otherUser, lastMessage: msg }; });
     const conversationList = Object.values(conversations).sort((a, b) => new Date(b.lastMessage.created_at) - new Date(a.lastMessage.created_at));
-    let chatHtml = `<div class="empty-state"><h3>Select a conversation</h3></div>`;
+    
+    // FIX: Wrapped the empty state in the chat-window div so it takes up the right side of the flex layout
+    let chatHtml = `<div class="chat-window"><div class="empty-state"><h3>Select a conversation</h3></div></div>`;
     if (activeChatUser) {
         const { data: chatMessages } = await sb.from('csns_messages').select('*, sender:sender_id(*)').or(`and(sender_id.eq.${currentUser.id},receiver_id.eq.${activeChatUser}),and(sender_id.eq.${activeChatUser},receiver_id.eq.${currentUser.id})`).order('created_at', { ascending: true });
         const otherProfile = conversationList.find(c => c.user.id === activeChatUser)?.user || (await sb.from('csns_profiles').select('*').eq('id', activeChatUser).single()).data;
-        chatHtml = `<div class="chat-window"><div class="chat-header"><img src="${otherProfile?.avatar_url || `https://ui-avatars.com/api/?name=${otherProfile?.username}`}" class="post-avatar" style="width: 32px; height: 32px;"><span>${otherProfile?.full_name || otherProfile?.username}</span></div><div class="chat-messages">${chatMessages.map(msg => `<div class="message-bubble ${msg.sender_id === currentUser.id ? 'message-sent' : 'message-received'}">${msg.content}</div>`).join('')}</div><div class="chat-input-area"><input id="dm-input" class="chat-input" placeholder="Type a message..." onkeypress="if(event.key==='Enter') sendDm()"><button onclick="sendDm()" class="btn btn-primary btn-sm">Send</button></div></div>`;
+        chatHtml = `<div class="chat-window">
+            <div class="chat-header">
+                <img src="${otherProfile?.avatar_url || `https://ui-avatars.com/api/?name=${otherProfile?.username}`}" class="post-avatar" style="width: 32px; height: 32px;">
+                <span>${otherProfile?.full_name || otherProfile?.username}</span>
+            </div>
+            <div class="chat-messages">
+                ${chatMessages.map(msg => `<div class="message-bubble ${msg.sender_id === currentUser.id ? 'message-sent' : 'message-received'}">${msg.content}</div>`).join('')}
+            </div>
+            <div class="chat-input-area">
+                <input id="dm-input" class="chat-input" placeholder="Type a message..." onkeypress="if(event.key==='Enter') sendDm()">
+                <button onclick="sendDm()" class="btn btn-primary btn-sm">Send</button>
+            </div>
+        </div>`;
     }
     app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Messages</h1></header><div class="chat-layout"><div class="conversation-list">${conversationList.length > 0 ? conversationList.map(c => `<div class="conversation-item ${activeChatUser === c.user.id ? 'active' : ''}" onclick="selectConversation('${c.user.id}')"><img src="${c.user.avatar_url || `https://ui-avatars.com/api/?name=${c.user.username}`}" class="post-avatar" style="width: 40px; height: 40px;"><div style="overflow: hidden;"><div style="font-weight: 700; font-size: 0.9rem;">${c.user.full_name || c.user.username}</div><div style="font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${c.lastMessage.content}</div></div></div>`).join('') : '<div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">No conversations.</div>'}</div>${chatHtml}</div>`, 'messages');
 }
