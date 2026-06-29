@@ -92,6 +92,29 @@ async function fetchDevTip() {
     } catch (e) {}
 }
 
+async function fetchTrendingRepos() {
+    const trendEl = document.getElementById('trending-repos');
+    if (!trendEl) return;
+    try {
+        const res = await fetch(`https://api.github.com/search/repositories?q=stars:%3E10000&sort=stars&order=desc&per_page=3`);
+        if (!res.ok) throw new Error("Rate limited");
+        const data = await res.json();
+        if (data.items) {
+            trendEl.innerHTML = data.items.map(r => `
+                <div class="trend-item">
+                    <div class="font-mono" style="color: var(--accent-primary); font-size: 0.9rem;">${r.full_name}</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">${r.stargazers_count} stars</div>
+                </div>
+            `).join('');
+        }
+    } catch (e) {
+        trendEl.innerHTML = `
+            <div class="trend-item"><div class="font-mono" style="color: var(--accent-primary); font-size: 0.9rem;">vercel / next.js</div><div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">The React Framework</div></div>
+            <div class="trend-item"><div class="font-mono" style="color: var(--accent-primary); font-size: 0.9rem;">supabase / supabase</div><div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">Backend as a Service</div></div>
+        `;
+    }
+}
+
 async function checkAuth() {
     const { data: { session } } = await sb.auth.getSession();
     if (session) {
@@ -117,22 +140,9 @@ async function checkAuth() {
     renderApp();
 }
 
-window.loginWithGithub = async function() {
-    const redirectUrl = window.location.origin + window.location.pathname;
-    await sb.auth.signInWithOAuth({ provider: 'github', options: { redirectTo: redirectUrl } });
-}
-
-window.loginWithGitlab = async function() {
-    const redirectUrl = window.location.origin + window.location.pathname;
-    await sb.auth.signInWithOAuth({ provider: 'gitlab', options: { redirectTo: redirectUrl } });
-}
-
-window.logout = async function() {
-    await sb.auth.signOut();
-    currentUser = null;
-    currentView = 'feed';
-    renderApp();
-}
+window.loginWithGithub = async function() { await sb.auth.signInWithOAuth({ provider: 'github', options: { redirectTo: window.location.origin + window.location.pathname } }); }
+window.loginWithGitlab = async function() { await sb.auth.signInWithOAuth({ provider: 'gitlab', options: { redirectTo: window.location.origin + window.location.pathname } }); }
+window.logout = async function() { await sb.auth.signOut(); currentUser = null; currentView = 'feed'; renderApp(); }
 
 sb.auth.onAuthStateChange((event, session) => {
     if (event === 'SIGNED_IN' && !currentUser) checkAuth();
@@ -170,11 +180,7 @@ window.handleNotifClick = async function(id, type, postId, actorId) {
     else if (postId) { currentView = 'feed'; renderApp(); setTimeout(() => toggleComments(postId), 500); }
 }
 
-window.setPostType = function(type) {
-    selectedPostType = type;
-    document.querySelectorAll('.type-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.type === type));
-}
-
+window.setPostType = function(type) { selectedPostType = type; document.querySelectorAll('.type-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.type === type)); }
 window.handleImageSelect = function(input) {
     if (input.files && input.files[0]) {
         selectedImageFile = input.files[0];
@@ -187,23 +193,12 @@ window.handleImageSelect = function(input) {
     }
 }
 
-window.togglePollComposer = function() {
-    const div = document.getElementById('poll-composer');
-    div.style.display = div.style.display === 'none' ? 'block' : 'none';
-}
+window.togglePollComposer = function() { const div = document.getElementById('poll-composer'); div.style.display = div.style.display === 'none' ? 'block' : 'none'; }
 
 window.handlePost = async function(parentId = null, isRepost = false) {
-    let content = '';
-    let postType = 'post';
-    let community = null;
-    
-    if (!parentId) {
-        content = document.getElementById('post-content').value;
-        postType = selectedPostType;
-        community = document.getElementById('post-community')?.value || null;
-    } else {
-        if (!isRepost) content = document.getElementById('quote-content').value;
-    }
+    let content = ''; let postType = 'post'; let community = null;
+    if (!parentId) { content = document.getElementById('post-content').value; postType = selectedPostType; community = document.getElementById('post-community')?.value || null; } 
+    else { if (!isRepost) content = document.getElementById('quote-content').value; }
     if (!content.trim() && !isRepost) return;
 
     let imageUrl = null;
@@ -218,7 +213,7 @@ window.handlePost = async function(parentId = null, isRepost = false) {
         content, user_id: currentUser.id, image_url: imageUrl, parent_post_id: parentId, is_repost: isRepost, post_type: postType, community
     }).select('id, user_id').single();
 
-    if (error) return;
+    if (error) { alert('Error creating post: ' + error.message); return; }
 
     if (!parentId) {
         const repoUrl = document.getElementById('repo-url').value;
@@ -236,13 +231,8 @@ window.handlePost = async function(parentId = null, isRepost = false) {
         const pollComposer = document.getElementById('poll-composer');
         if (pollComposer && pollComposer.style.display !== 'none') {
             let pollOptions = [];
-            for (let i = 1; i <= 3; i++) {
-                const val = document.getElementById(`poll-opt-${i}`).value.trim();
-                if (val) pollOptions.push(val);
-            }
-            if (pollOptions.length > 1) {
-                await sb.from('csns_polls').insert({ post_id: newPost.id, options: pollOptions });
-            }
+            for (let i = 1; i <= 3; i++) { const val = document.getElementById(`poll-opt-${i}`).value.trim(); if (val) pollOptions.push(val); }
+            if (pollOptions.length > 1) { await sb.from('csns_polls').insert({ post_id: newPost.id, options: pollOptions }); }
         }
     }
 
@@ -256,52 +246,38 @@ window.handlePost = async function(parentId = null, isRepost = false) {
 
 window.votePoll = async function(pollId, optionIndex) {
     if (!currentUser) return alert('Please login to vote.');
-    await sb.from('csns_poll_votes').insert({ poll_id: pollId, user_id: currentUser.id, option_index: optionIndex });
+    const { error } = await sb.from('csns_poll_votes').insert({ poll_id: pollId, user_id: currentUser.id, option_index: optionIndex });
+    if (error) alert('Error voting: ' + error.message);
     fetchFeedPosts(false);
 }
 
 window.deletePost = async function(postId) {
     if (!confirm('Are you sure you want to delete this post?')) return;
-    await sb.from('csns_posts').delete().eq('id', postId);
+    const { error } = await sb.from('csns_posts').delete().eq('id', postId);
+    if (error) alert('Error deleting: ' + error.message);
     fetchFeedPosts(false);
 }
 
 window.handleLike = async function(postId, ownerId) {
     if (!currentUser) return alert('Please login to like.');
     const isLiked = feedCache.find(p => p.id === postId)?.csns_likes.some(l => l.user_id === currentUser.id);
-    
     updatePostInCache(postId, (post) => {
         if (isLiked) post.csns_likes = post.csns_likes.filter(l => l.user_id !== currentUser.id);
         else post.csns_likes.push({ user_id: currentUser.id });
     });
-    
-    if (isLiked) {
-        await sb.from('csns_likes').delete().match({ post_id: postId, user_id: currentUser.id });
-    } else {
-        await sb.from('csns_likes').insert({ post_id: postId, user_id: currentUser.id });
-        createNotification(currentUser.id, ownerId, 'like', postId);
-    }
+    if (isLiked) { await sb.from('csns_likes').delete().match({ post_id: postId, user_id: currentUser.id }); } 
+    else { await sb.from('csns_likes').insert({ post_id: postId, user_id: currentUser.id }); createNotification(currentUser.id, ownerId, 'like', postId); }
 }
 
 window.handleReaction = async function(postId, type, ownerId) {
     if (!currentUser) return alert('Please login to react.');
     const existing = feedCache.find(p => p.id === postId)?.csns_reactions.find(r => r.user_id === currentUser.id);
-    
     updatePostInCache(postId, (post) => {
-        if (existing) {
-            if (existing.type === type) post.csns_reactions = post.csns_reactions.filter(r => r.user_id !== currentUser.id);
-            else existing.type = type;
-        } else {
-            post.csns_reactions.push({ user_id: currentUser.id, type });
-        }
+        if (existing) { if (existing.type === type) post.csns_reactions = post.csns_reactions.filter(r => r.user_id !== currentUser.id); else existing.type = type; } 
+        else { post.csns_reactions.push({ user_id: currentUser.id, type }); }
     });
-    
-    if (existing) {
-        if (existing.type === type) await sb.from('csns_reactions').delete().match({ id: existing.id });
-        else await sb.from('csns_reactions').update({ type }).eq('id', existing.id);
-    } else {
-        await sb.from('csns_reactions').insert({ post_id: postId, user_id: currentUser.id, type });
-    }
+    if (existing) { if (existing.type === type) await sb.from('csns_reactions').delete().match({ id: existing.id }); else await sb.from('csns_reactions').update({ type }).eq('id', existing.id); } 
+    else { await sb.from('csns_reactions').insert({ post_id: postId, user_id: currentUser.id, type }); }
 }
 
 window.handleBookmark = async function(postId, isSaved) {
@@ -310,7 +286,6 @@ window.handleBookmark = async function(postId, isSaved) {
         if (isSaved) post.csns_bookmarks = post.csns_bookmarks.filter(b => b.user_id !== currentUser.id);
         else post.csns_bookmarks.push({ user_id: currentUser.id });
     });
-    
     if (isSaved) await sb.from('csns_bookmarks').delete().match({ post_id: postId, user_id: currentUser.id });
     else await sb.from('csns_bookmarks').insert({ post_id: postId, user_id: currentUser.id });
 }
@@ -322,28 +297,19 @@ window.handleFollow = async function(targetId, isFollowing) {
     renderApp();
 }
 
-window.copyCode = function(btn) { 
-    const code = btn.closest('.code-block-wrapper').querySelector('code').innerText;
-    navigator.clipboard.writeText(code); 
-    btn.innerText = 'Copied!'; 
-    setTimeout(() => btn.innerText = 'Copy', 2000); 
-}
-
+window.copyCode = function(btn) { navigator.clipboard.writeText(btn.closest('.code-block-wrapper').querySelector('code').innerText); btn.innerText = 'Copied!'; setTimeout(() => btn.innerText = 'Copy', 2000); }
 window.runCode = function(btn) {
     const wrapper = btn.closest('.code-block-wrapper');
-    const code = wrapper.querySelector('code').innerText;
     const outputDiv = wrapper.querySelector('.code-output');
     try {
         let logs = [];
         const oldLog = console.log;
         console.log = (...args) => logs.push(args.join(' '));
-        const result = eval(code);
+        const result = eval(wrapper.querySelector('code').innerText);
         console.log = oldLog;
         outputDiv.innerText = logs.join('\n') + (result !== undefined ? '\n' + result : '');
-        if (!outputDiv.innerText) outputDiv.innerText = 'Code executed successfully (no output).';
-    } catch (e) {
-        outputDiv.innerText = 'Error: ' + e.message;
-    }
+        if (!outputDiv.innerText) outputDiv.innerText = 'Code executed successfully.';
+    } catch (e) { outputDiv.innerText = 'Error: ' + e.message; }
     outputDiv.style.display = 'block';
 }
 
@@ -363,16 +329,11 @@ window.toggleComments = async function(postId, ownerId) {
                 <div class="comment-item" style="margin-left: ${depth * 2}rem;">
                     <img src="${c.csns_profiles?.avatar_url || `https://ui-avatars.com/api/?name=${c.csns_profiles?.username}`}" class="post-avatar" style="width: 32px; height: 32px;">
                     <div style="flex: 1;">
-                        <div style="display: flex; gap: 0.5rem; align-items: center;">
-                            <span style="font-weight: 700; font-size: 0.9rem;">${c.csns_profiles?.full_name || c.csns_profiles?.username}</span>
-                            <span style="font-size: 0.8rem; color: var(--text-muted);" class="font-mono">@${c.csns_profiles?.username}</span>
-                        </div>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;"><span style="font-weight: 700; font-size: 0.9rem;">${c.csns_profiles?.full_name || c.csns_profiles?.username}</span><span style="font-size: 0.8rem; color: var(--text-muted);" class="font-mono">@${c.csns_profiles?.username}</span></div>
                         <p style="color: var(--text-secondary); margin-top: 0.25rem; font-size: 0.9rem;">${c.content}</p>
                         ${currentUser ? `<button class="reply-btn" onclick="setReplyTo('${c.id}', '${postId}')">Reply</button>` : ''}
                     </div>
-                </div>
-                ${renderComments(c.id, depth + 1)}
-            `).join('');
+                </div>${renderComments(c.id, depth + 1)}`).join('');
         };
 
         let html = renderComments();
@@ -381,39 +342,21 @@ window.toggleComments = async function(postId, ownerId) {
     } else { section.style.display = 'none'; }
 }
 
-window.setReplyTo = function(commentId, postId) {
-    replyToCommentId = commentId;
-    const input = document.getElementById(`comment-input-${postId}`);
-    input.placeholder = "Replying to comment...";
-    input.focus();
-}
-
+window.setReplyTo = function(commentId, postId) { replyToCommentId = commentId; const input = document.getElementById(`comment-input-${postId}`); input.placeholder = "Replying to comment..."; input.focus(); }
 window.submitComment = async function(postId, ownerId) {
     const input = document.getElementById(`comment-input-${postId}`);
     if (!input.value.trim()) return;
-    await sb.from('csns_comments').insert({ post_id: postId, user_id: currentUser.id, content: input.value, parent_comment_id: replyToCommentId });
+    const { error } = await sb.from('csns_comments').insert({ post_id: postId, user_id: currentUser.id, content: input.value, parent_comment_id: replyToCommentId });
+    if (error) alert('Error commenting: ' + error.message);
     createNotification(currentUser.id, ownerId, 'comment', postId);
     replyToCommentId = null;
     toggleComments(postId, ownerId);
     setTimeout(() => toggleComments(postId, ownerId), 200);
 }
 
-window.searchTag = function(tag) {
-    activeTag = tag;
-    currentView = 'feed';
-    renderApp();
-}
-
-window.setFeedTab = function(tab) {
-    activeFeedTab = tab;
-    activeTag = null;
-    renderApp();
-}
-
-window.toggleTheme = function() {
-    document.body.classList.toggle('light-theme');
-    localStorage.setItem('theme', document.body.classList.contains('light-theme') ? 'light' : 'dark');
-}
+window.searchTag = function(tag) { activeTag = tag; currentView = 'feed'; renderApp(); }
+window.setFeedTab = function(tab) { activeFeedTab = tab; activeTag = null; renderApp(); }
+window.toggleTheme = function() { document.body.classList.toggle('light-theme'); localStorage.setItem('theme', document.body.classList.contains('light-theme') ? 'light' : 'dark'); }
 
 window.handleSearchInput = function(e) {
     clearTimeout(searchTimeout);
@@ -443,37 +386,26 @@ window.closeVerifyModal = function() { document.getElementById('verify-modal').s
 window.sendVerificationCode = async function() {
     const email = document.getElementById('verify-email').value;
     if (!email.endsWith('@360-search.com')) return alert('Email must end in @360-search.com');
-    const btn = document.querySelector('#verify-step-1 button');
-    btn.innerText = 'Sending...'; btn.disabled = true;
+    const btn = document.querySelector('#verify-step-1 button'); btn.innerText = 'Sending...'; btn.disabled = true;
     try {
         const { error } = await sb.functions.invoke('send-verification', { body: { email, userId: currentUser.id }, method: 'POST' });
         if (error) throw error;
-        document.getElementById('verify-step-1').style.display = 'none';
-        document.getElementById('verify-step-2').style.display = 'block';
-    } catch (err) {
-        alert('Failed to send code: ' + err.message);
-        btn.innerText = 'Send Code'; btn.disabled = false;
-    }
+        document.getElementById('verify-step-1').style.display = 'none'; document.getElementById('verify-step-2').style.display = 'block';
+    } catch (err) { alert('Failed to send code: ' + err.message); btn.innerText = 'Send Code'; btn.disabled = false; }
 }
 window.confirmVerificationCode = async function() {
     const code = document.getElementById('verify-code-input').value;
-    const btn = document.querySelector('#verify-step-2 button');
-    btn.innerText = 'Verifying...'; btn.disabled = true;
+    const btn = document.querySelector('#verify-step-2 button'); btn.innerText = 'Verifying...'; btn.disabled = true;
     try {
         const { data, error } = await sb.from('csns_email_verifications').select('*').eq('user_id', currentUser.id).eq('code', code).order('created_at', { ascending: false }).limit(1).single();
         if (error || !data) throw new Error('Invalid code.');
         const { data: updatedProfile } = await sb.from('csns_profiles').update({ is_verified: true, is_premium: true }).eq('id', currentUser.id).select().single();
-        currentUser = updatedProfile;
-        closeVerifyModal();
-        renderApp();
-    } catch (err) {
-        alert(err.message);
-        btn.innerText = 'Verify'; btn.disabled = false;
-    }
+        currentUser = updatedProfile; closeVerifyModal(); renderApp();
+    } catch (err) { alert(err.message); btn.innerText = 'Verify'; btn.disabled = false; }
 }
 
 window.saveProfileSettings = async function() {
-    const { data } = await sb.from('csns_profiles').update({ 
+    const { data, error } = await sb.from('csns_profiles').update({ 
         full_name: document.getElementById('settings-fullname').value, 
         bio: document.getElementById('settings-bio').value, 
         avatar_url: document.getElementById('settings-avatar').value,
@@ -485,9 +417,8 @@ window.saveProfileSettings = async function() {
         accent_color: document.getElementById('settings-accent').value,
         readme: document.getElementById('settings-readme').value
     }).eq('id', currentUser.id).select().single();
-    currentUser = data;
-    alert('Profile saved!');
-    renderApp();
+    if (error) { alert('Error saving: ' + error.message); return; }
+    currentUser = data; alert('Saved successfully!'); renderApp();
 }
 
 window.setProfileTab = function(tab) { profileTab = tab; renderApp(); }
@@ -496,18 +427,18 @@ window.setSettingsTab = function(tab) { settingsTab = tab; renderApp(); }
 window.createCommunity = async function() {
     const name = prompt('Enter community name (e.g., react, rust):');
     if (!name) return;
-    await sb.from('csns_communities').insert({ name: name.toLowerCase(), description: 'A community for ' + name, creator_id: currentUser.id });
-    renderCommunities();
+    const { error } = await sb.from('csns_communities').insert({ name: name.toLowerCase(), description: 'A community for ' + name, creator_id: currentUser.id });
+    if (error) { alert('Error creating community: ' + error.message); return; }
+    alert('Community created!'); renderCommunities();
 }
 
 window.createEvent = async function() {
-    const title = prompt('Event title:');
-    if (!title) return;
-    const date = prompt('Event date (YYYY-MM-DDTHH:MM):');
-    if (!date) return;
+    const title = prompt('Event title:'); if (!title) return;
+    const date = prompt('Event date (YYYY-MM-DDTHH:MM):'); if (!date) return;
     const url = prompt('Event URL (optional):');
-    await sb.from('csns_events').insert({ user_id: currentUser.id, title, event_date: date, url });
-    renderEvents();
+    const { error } = await sb.from('csns_events').insert({ user_id: currentUser.id, title, event_date: date, url });
+    if (error) { alert('Error creating event: ' + error.message); return; }
+    alert('Event created!'); renderEvents();
 }
 
 async function renderApp() {
@@ -523,6 +454,7 @@ async function renderApp() {
     else if (currentView === 'events') await renderEvents();
     else if (currentView === 'settings') await renderSettings();
     else await renderFeed();
+    fetchTrendingRepos(); // Ensure trending repos load globally
 }
 
 function renderLayout(centerContent, activeNav = 'home') {
@@ -533,19 +465,10 @@ function renderLayout(centerContent, activeNav = 'home') {
             <div id="verify-modal" class="modal-overlay" style="display: none;">
                 <div class="modal-content">
                     <div class="modal-header"><h2 class="modal-title">Get Verified</h2><button class="modal-close" onclick="closeVerifyModal()">&times;</button></div>
-                    <div id="verify-step-1" class="verify-step">
-                        <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1rem;">Enter your @360-search.com email to receive a verification code.</p>
-                        <input id="verify-email" type="email" class="modal-input" placeholder="yourname@360-search.com">
-                        <button onclick="sendVerificationCode()" class="btn btn-primary" style="width: 100%;">Send Code</button>
-                    </div>
-                    <div id="verify-step-2" class="verify-step" style="display: none;">
-                        <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1rem;">Enter the 6-digit code sent to your email.</p>
-                        <input id="verify-code-input" type="text" maxlength="6" class="modal-input verify-code-input" placeholder="123456">
-                        <button onclick="confirmVerificationCode()" class="btn btn-primary" style="width: 100%;">Verify</button>
-                    </div>
+                    <div id="verify-step-1" class="verify-step"><p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1rem;">Enter your @360-search.com email to receive a verification code.</p><input id="verify-email" type="email" class="modal-input" placeholder="yourname@360-search.com"><button onclick="sendVerificationCode()" class="btn btn-primary" style="width: 100%;">Send Code</button></div>
+                    <div id="verify-step-2" class="verify-step" style="display: none;"><p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1rem;">Enter the 6-digit code sent to your email.</p><input id="verify-code-input" type="text" maxlength="6" class="modal-input verify-code-input" placeholder="123456"><button onclick="confirmVerificationCode()" class="btn btn-primary" style="width: 100%;">Verify</button></div>
                 </div>
             </div>
-
             <aside class="left-sidebar">
                 <div class="logo"><svg style="width: 28px; height: 28px; color: var(--accent-primary);" fill="currentColor" viewBox="0 0 24 24"><path d="M13 2L3 14h7v8l10-12h-7V2z"/></svg> CodeSNS</div>
                 <nav style="flex: 1;">
@@ -570,7 +493,7 @@ function renderLayout(centerContent, activeNav = 'home') {
                         </div>
                         <div id="notif-dropdown" class="notif-dropdown"></div>
                     </div>
-                    <a class="nav-item logout-btn" onclick="logout()"><svg style="width: 24px; height: 24px;" fill="none; stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg><span>Logout</span></a>
+                    <a class="nav-item logout-btn" onclick="logout()"><svg style="width: 24px; height: 24px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg><span>Logout</span></a>
                 ` : `<div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: auto; padding: 0 0.5rem;"><button onclick="loginWithGithub()" class="btn btn-ghost btn-sm" style="width: 100%; justify-content: center;">GitHub</button><button onclick="loginWithGitlab()" class="btn btn-ghost btn-sm" style="width: 100%; justify-content: center;">GitLab</button></div>`}
             </aside>
             <main class="center-feed">${centerContent}</main>
@@ -608,24 +531,16 @@ async function renderFeed() {
             <div class="composer fade-in">
                 <img src="${currentUser.avatar_url || `https://ui-avatars.com/api/?name=${currentUser.username}`}" class="post-avatar">
                 <div style="flex: 1;">
-                    <div class="composer-types">
-                        <button class="type-btn active" data-type="post" onclick="setPostType('post')">Post</button>
-                        <button class="type-btn" data-type="review" onclick="setPostType('review')">Review</button>
-                        <button class="type-btn" data-type="challenge" onclick="setPostType('challenge')">Challenge</button>
-                    </div>
+                    <div class="composer-types"><button class="type-btn active" data-type="post" onclick="setPostType('post')">Post</button><button class="type-btn" data-type="review" onclick="setPostType('review')">Review</button><button class="type-btn" data-type="challenge" onclick="setPostType('challenge')">Challenge</button></div>
                     <textarea id="post-content" placeholder="What did you code today? Use #tags" rows="3"></textarea>
                     <input id="repo-url" type="text" placeholder="Attach GitHub/GitLab repo link (optional)">
-                    <input id="post-community" type="text" placeholder="Community (e.g., react, rust) - optional" style="margin-top: 0.5rem; background: var(--bg-surface); border: 1px solid var(--border-light); border-radius: var(--radius-sm); padding: 0.5rem 1rem; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; outline: none; width: 100%;">
+                    <input id="post-community" type="text" placeholder="Community (e.g., react) - optional" style="margin-top: 0.5rem; background: var(--bg-surface); border: 1px solid var(--border-light); border-radius: var(--radius-sm); padding: 0.5rem 1rem; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; outline: none; width: 100%;">
                     <div class="upload-btn-wrapper">
                         <label class="upload-btn"><svg style="width: 20px; height: 20px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg><span>Add Image</span><input id="image-upload" type="file" accept="image/*" style="display: none;" onchange="handleImageSelect(this)"></label>
                         <label class="upload-btn"><svg style="width: 20px; height: 20px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg><span>Add Poll</span><input type="checkbox" style="display: none;" onchange="togglePollComposer()"></label>
                         <img id="image-preview" class="image-preview" style="display: none;" />
                     </div>
-                    <div id="poll-composer" style="display: none; margin-top: 0.5rem;">
-                        <input id="poll-opt-1" type="text" class="modal-input" placeholder="Option 1" style="margin-bottom: 0.5rem;">
-                        <input id="poll-opt-2" type="text" class="modal-input" placeholder="Option 2" style="margin-bottom: 0.5rem;">
-                        <input id="poll-opt-3" type="text" class="modal-input" placeholder="Option 3">
-                    </div>
+                    <div id="poll-composer" style="display: none; margin-top: 0.5rem;"><input id="poll-opt-1" type="text" class="modal-input" placeholder="Option 1" style="margin-bottom: 0.5rem;"><input id="poll-opt-2" type="text" class="modal-input" placeholder="Option 2" style="margin-bottom: 0.5rem;"><input id="poll-opt-3" type="text" class="modal-input" placeholder="Option 3"></div>
                     <div style="display: flex; justify-content: flex-end; margin-top: 1rem;"><button onclick="handlePost()" class="btn btn-primary">Post Code</button></div>
                 </div>
             </div>
@@ -695,34 +610,28 @@ async function renderMessages() {
 }
 
 window.selectConversation = function(userId) { activeChatUser = userId; renderMessages(); }
-window.sendDm = async function() { const input = document.getElementById('dm-input'); if (!input.value.trim() || !activeChatUser) return; await sb.from('csns_messages').insert({ sender_id: currentUser.id, receiver_id: activeChatUser, content: input.value }); createNotification(currentUser.id, activeChatUser, 'message'); input.value = ''; renderMessages(); }
+window.sendDm = async function() { const input = document.getElementById('dm-input'); if (!input.value.trim() || !activeChatUser) return; const { error } = await sb.from('csns_messages').insert({ sender_id: currentUser.id, receiver_id: activeChatUser, content: input.value }); if (error) alert('Error sending message: ' + error.message); createNotification(currentUser.id, activeChatUser, 'message'); input.value = ''; renderMessages(); }
 
 async function renderCommunities() {
     app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Communities</h1><button onclick="createCommunity()" class="btn btn-primary btn-sm" style="margin-left: auto;">+ New Community</button></header><div id="communities-list"></div>`, 'communities');
-    const { data: communities } = await sb.from('csns_communities').select('*').order('created_at', { ascending: false });
-    document.getElementById('communities-list').innerHTML = communities.map(c => `
-        <a class="community-card" onclick="searchTag('${c.name}')">
-            <div class="community-name">c/${c.name}</div>
-            <div style="font-size: 0.9rem; color: var(--text-muted);">${c.description}</div>
-        </a>
-    `).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No communities yet.</div>';
+    const { data: communities, error } = await sb.from('csns_communities').select('*').order('created_at', { ascending: false });
+    const listEl = document.getElementById('communities-list');
+    if (error) { listEl.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--accent-danger);">Error loading communities: ${error.message}</div>`; return; }
+    if (!communities || communities.length === 0) { listEl.innerHTML = '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No communities yet. Create one!</div>'; return; }
+    listEl.innerHTML = communities.map(c => `<a class="community-card" onclick="searchTag('${c.name}')"><div class="community-name">c/${c.name}</div><div style="font-size: 0.9rem; color: var(--text-muted);">${c.description}</div></a>`).join('');
 }
 
 async function renderEvents() {
     app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Events</h1><button onclick="createEvent()" class="btn btn-primary btn-sm" style="margin-left: auto;">+ New Event</button></header><div id="events-list"></div>`, 'events');
-    const { data: events } = await sb.from('csns_events').select('*').order('event_date', { ascending: true });
-    document.getElementById('events-list').innerHTML = events.map(e => `
-        <a href="${e.url || '#'}" target="_blank" class="event-item">
-            <div class="event-title">${e.title}</div>
-            <div style="font-size: 0.9rem; color: var(--text-muted);">${new Date(e.event_date).toLocaleString()}</div>
-            ${e.description ? `<p style="margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);">${e.description}</p>` : ''}
-        </a>
-    `).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No events yet.</div>';
+    const { data: events, error } = await sb.from('csns_events').select('*').order('event_date', { ascending: true });
+    const listEl = document.getElementById('events-list');
+    if (error) { listEl.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--accent-danger);">Error loading events: ${error.message}</div>`; return; }
+    if (!events || events.length === 0) { listEl.innerHTML = '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No events yet. Create one!</div>'; return; }
+    listEl.innerHTML = events.map(e => `<a href="${e.url || '#'}" target="_blank" class="event-item"><div class="event-title">${e.title}</div><div style="font-size: 0.9rem; color: var(--text-muted);">${new Date(e.event_date).toLocaleString()}</div>${e.description ? `<p style="margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);">${e.description}</p>` : ''}</a>`).join('');
 }
 
 async function renderSettings() {
     if (!currentUser) { app.innerHTML = renderLayout('<div class="empty-state">Sign in to view settings.</div>', 'settings'); return; }
-    
     let centerContent = `
         <header class="page-header"><h1 class="page-title">Settings</h1></header>
         <div class="settings-layout">
@@ -732,27 +641,29 @@ async function renderSettings() {
             </div>
             <div style="flex: 1;">
     `;
-    
     if (settingsTab === 'profile') {
         centerContent += `
-            <div class="modal-input-group"><label class="modal-label">Full Name</label><input id="settings-fullname" type="text" class="modal-input" value="${currentUser.full_name || ''}"></div>
-            <div class="modal-input-group"><label class="modal-label">Bio</label><textarea id="settings-bio" class="modal-input modal-textarea">${currentUser.bio || ''}</textarea></div>
-            <div class="modal-input-group"><label class="modal-label">Accent Color</label><input id="settings-accent" type="color" class="modal-input" style="height: 40px; padding: 4px;" value="${currentUser.accent_color || '#00d4ff'}"></div>
-            <div class="modal-input-group"><label class="modal-label">Avatar Image URL</label><input id="settings-avatar" type="text" class="modal-input" value="${currentUser.avatar_url || ''}"></div>
-            <div class="modal-input-group"><label class="modal-label">Banner Image URL</label><input id="settings-banner" type="text" class="modal-input" value="${currentUser.banner_url || ''}"></div>
-            <div class="modal-input-group"><label class="modal-label">GitHub URL</label><input id="settings-github" type="text" class="modal-input" value="${currentUser.github_url || ''}"></div>
-            <div class="modal-input-group"><label class="modal-label">GitLab URL</label><input id="settings-gitlab" type="text" class="modal-input" value="${currentUser.gitlab_url || ''}"></div>
-            <div class="modal-input-group"><label class="modal-label">LinkedIn URL</label><input id="settings-linkedin" type="text" class="modal-input" value="${currentUser.linkedin_url || ''}"></div>
-            <div class="modal-input-group"><label class="modal-label">Twitter URL</label><input id="settings-twitter" type="text" class="modal-input" value="${currentUser.twitter_url || ''}"></div>
-            <button onclick="saveProfileSettings()" class="btn btn-primary">Save Profile</button>
+            <div class="settings-form">
+                <div class="modal-input-group"><label class="modal-label">Full Name</label><input id="settings-fullname" type="text" class="modal-input" value="${currentUser.full_name || ''}"></div>
+                <div class="modal-input-group"><label class="modal-label">Bio</label><textarea id="settings-bio" class="modal-input modal-textarea">${currentUser.bio || ''}</textarea></div>
+                <div class="modal-input-group"><label class="modal-label">Accent Color</label><input id="settings-accent" type="color" class="modal-input" style="height: 40px; padding: 4px;" value="${currentUser.accent_color || '#00d4ff'}"></div>
+                <div class="modal-input-group"><label class="modal-label">Avatar Image URL</label><input id="settings-avatar" type="text" class="modal-input" value="${currentUser.avatar_url || ''}"></div>
+                <div class="modal-input-group"><label class="modal-label">Banner Image URL</label><input id="settings-banner" type="text" class="modal-input" value="${currentUser.banner_url || ''}"></div>
+                <div class="modal-input-group"><label class="modal-label">GitHub URL</label><input id="settings-github" type="text" class="modal-input" value="${currentUser.github_url || ''}"></div>
+                <div class="modal-input-group"><label class="modal-label">GitLab URL</label><input id="settings-gitlab" type="text" class="modal-input" value="${currentUser.gitlab_url || ''}"></div>
+                <div class="modal-input-group"><label class="modal-label">LinkedIn URL</label><input id="settings-linkedin" type="text" class="modal-input" value="${currentUser.linkedin_url || ''}"></div>
+                <div class="modal-input-group"><label class="modal-label">Twitter URL</label><input id="settings-twitter" type="text" class="modal-input" value="${currentUser.twitter_url || ''}"></div>
+                <button onclick="saveProfileSettings()" class="btn btn-primary">Save Profile</button>
+            </div>
         `;
     } else if (settingsTab === 'readme') {
         centerContent += `
-            <div class="modal-input-group"><label class="modal-label">Profile Readme (Markdown supported)</label><textarea id="settings-readme" class="modal-input" style="min-height: 300px; font-family: monospace;">${currentUser.readme || ''}</textarea></div>
-            <button onclick="saveProfileSettings()" class="btn btn-primary">Save Readme</button>
+            <div class="settings-form">
+                <div class="modal-input-group"><label class="modal-label">Profile Readme (Markdown supported)</label><textarea id="settings-readme" class="modal-input" style="min-height: 300px; font-family: monospace;">${currentUser.readme || ''}</textarea></div>
+                <button onclick="saveProfileSettings()" class="btn btn-primary">Save Readme</button>
+            </div>
         `;
     }
-    
     centerContent += `</div></div>`;
     app.innerHTML = renderLayout(centerContent, 'settings');
 }
@@ -763,24 +674,20 @@ async function renderProfile(profileId) {
     
     let posts = allPosts.filter(p => !p.pinned);
     let pinnedPosts = allPosts.filter(p => p.pinned);
-
     if (profileSort === 'oldest') posts.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
     else if (profileSort === 'popular') posts.sort((a,b) => b.csns_likes.length - a.csns_likes.length);
 
     let isFollowing = false;
     if (currentUser) { const { data } = await sb.from('csns_follows').select('*').match({ follower_id: currentUser.id, following_id: profileId }); isFollowing = data.length > 0; }
-    
     const { count: csnsFollowers } = await sb.from('csns_follows').select('*', { count: 'exact', head: true }).eq('following_id', profileId);
     const { count: csnsFollowing } = await sb.from('csns_follows').select('*', { count: 'exact', head: true }).eq('follower_id', profileId);
     
-    let badgeHtml = ''; let ghStatsHtml = ''; let totalLikes = 0; let totalStars = 0; let ghFollowers = 0; let ghRepos = 0;
+    let badgeHtml = ''; let totalLikes = 0; let totalStars = 0; let ghFollowers = 0; let ghRepos = 0;
     posts.forEach(p => totalLikes += p.csns_likes.length);
-
     let achievements = [];
     if (posts.length > 0) achievements.push({ name: 'First Post', icon: 'post' });
     if (totalLikes >= 10) achievements.push({ name: 'Getting Likes', icon: 'heart' });
-    if (totalLikes >= 100) achievements.push({ name: 'Community Pillar', icon: 'star' });
-    if (profile.is_premium) achievements.push({ name: 'Premium', icon: 'crown', class: 'premium' });
+    if (profile.is_premium) achievements.push({ name: 'Premium', icon: 'crown' });
 
     let metaItems = [];
     if (profile.github_url) metaItems.push(`<a href="${profile.github_url}" target="_blank" class="profile-meta-item">GitHub</a>`);
@@ -801,9 +708,6 @@ async function renderProfile(profileId) {
                 if (score > 50) { badgeClass = 'badge-mid'; badgeText = 'Mid Dev'; }
                 if (score > 200) { badgeClass = 'badge-senior'; badgeText = 'Senior Dev'; }
                 badgeHtml = `<span class="dev-badge ${badgeClass}">${badgeText}</span>`;
-                if (ghData.company) metaItems.push(`<div class="profile-meta-item">${ghData.company}</div>`);
-                if (ghData.location) metaItems.push(`<div class="profile-meta-item">${ghData.location}</div>`);
-                if (ghData.blog) metaItems.push(`<a href="${ghData.blog.startsWith('http') ? ghData.blog : 'https://' + ghData.blog}" target="_blank" class="profile-meta-item">Website</a>`);
             } catch(e) {}
         }
     }
@@ -822,16 +726,16 @@ async function renderProfile(profileId) {
         <header class="page-header">
             <span class="header-back" onclick="currentView='feed'; renderApp()"><svg style="width: 24px; height: 24px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg></span>
             <div><h1 class="page-title">${profile.full_name || profile.username}</h1><div class="header-subtitle">${posts.length} Posts</div></div>
-            ${currentUser && currentUser.id === profileId ? `<button onclick="currentView='settings'; renderApp()" class="btn btn-ghost btn-sm" style="margin-left: auto;">Edit Settings</button>` : ''}
+            ${currentUser && currentUser.id === profileId ? `<button onclick="currentView='settings'; renderApp()" class="btn btn-ghost btn-sm" style="margin-left: auto;">Settings</button>` : ''}
         </header>
         <div class="profile-header fade-in">
             <div class="profile-banner" style="${profile.banner_url ? `background-image: url('${profile.banner_url}')` : ''}"></div>
-            <div class="profile-avatar-wrapper" style="padding: 0 1.5rem; margin-top: -50px; display: flex; justify-content: space-between; align-items: flex-end;">
-                <img src="${profile.avatar_url || `https://ui-avatars.com/api/?name=${profile.username}`}" class="profile-avatar-main" style="width: 100px; height: 100px; border-radius: 50%; border: 4px solid var(--bg-main); background: var(--bg-elevated);">
+            <div class="profile-avatar-wrapper">
+                <img src="${profile.avatar_url || `https://ui-avatars.com/api/?name=${profile.username}`}" class="profile-avatar-main">
                 ${currentUser && currentUser.id !== profileId ? `<div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;"><button onclick="handleFollow('${profileId}', ${isFollowing})" class="btn ${isFollowing ? 'btn-ghost' : 'btn-primary'} btn-sm">${isFollowing ? 'Following' : 'Follow'}</button></div>` : ''}
             </div>
-            <div class="profile-info" style="padding: 1.5rem;">
-                <h2 style="font-size: 1.5rem; font-weight: 800;">${profile.full_name || profile.username} ${verifiedHtml} ${badgeHtml}</h2>
+            <div class="profile-info">
+                <h2 style="font-size: 1.5rem; font-weight: 800; display: flex; align-items: center; gap: 0.5rem;">${profile.full_name || profile.username} ${verifiedHtml} ${badgeHtml}</h2>
                 <p style="color: var(--text-muted);" class="font-mono">@${profile.username}</p>
                 ${profile.bio ? `<p class="profile-bio" style="margin-top: 0.5rem;">${profile.bio}</p>` : ''}
             </div>
