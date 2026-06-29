@@ -24,7 +24,7 @@ let isLoadingPosts = false;
 let hasMorePosts = true;
 let profileTab = 'posts';
 let settingsTab = 'profile';
-let hasFetchedTrending = false;
+let trendingHtmlCache = ''; // Cache trending repos so we don't hit GitHub API limits
 
 function updatePostInCache(postId, updateFn) {
     const post = feedCache.find(p => p.id === postId);
@@ -94,17 +94,21 @@ async function fetchDevTip() {
 }
 
 async function fetchTrendingRepos() {
-    if (hasFetchedTrending) return;
-    hasFetchedTrending = true;
-    
     const trendEl = document.getElementById('trending-repos');
     if (!trendEl) return;
+    
+    // If we already fetched them, just inject the cached HTML
+    if (trendingHtmlCache) {
+        trendEl.innerHTML = trendingHtmlCache;
+        return;
+    }
+    
     try {
         const res = await fetch(`https://api.github.com/search/repositories?q=stars:%3E10000&sort=stars&order=desc&per_page=3`);
         if (!res.ok) throw new Error("Rate limited");
         const data = await res.json();
         if (data.items) {
-            trendEl.innerHTML = data.items.map(r => `
+            trendingHtmlCache = data.items.map(r => `
                 <div class="trend-item">
                     <div class="font-mono" style="color: var(--accent-primary); font-size: 0.9rem;">${r.full_name}</div>
                     <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">${r.stargazers_count} stars</div>
@@ -112,11 +116,12 @@ async function fetchTrendingRepos() {
             `).join('');
         }
     } catch (e) {
-        trendEl.innerHTML = `
+        trendingHtmlCache = `
             <div class="trend-item"><div class="font-mono" style="color: var(--accent-primary); font-size: 0.9rem;">vercel / next.js</div><div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">The React Framework</div></div>
             <div class="trend-item"><div class="font-mono" style="color: var(--accent-primary); font-size: 0.9rem;">supabase / supabase</div><div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">Backend as a Service</div></div>
         `;
     }
+    trendEl.innerHTML = trendingHtmlCache;
 }
 
 async function checkAuth() {
@@ -436,7 +441,8 @@ window.createCommunity = async function() {
     alert('Community created!'); renderCommunities();
 }
 
-window.createEvent = async function() {
+// FIX: Renamed from createEvent to createNewEvent to avoid colliding with native browser API
+window.createNewEvent = async function() {
     const title = prompt('Event title:'); if (!title) return;
     const date = prompt('Event date (YYYY-MM-DDTHH:MM):'); if (!date) return;
     const url = prompt('Event URL (optional):');
@@ -459,7 +465,8 @@ async function renderApp() {
     else if (currentView === 'settings') await renderSettings();
     else await renderFeed();
     
-    if (!hasFetchedTrending) fetchTrendingRepos();
+    // Always attempt to fetch/populate trending repos on every page render
+    fetchTrendingRepos();
 }
 
 function renderLayout(centerContent, activeNav = 'home') {
@@ -498,7 +505,7 @@ function renderLayout(centerContent, activeNav = 'home') {
                         </div>
                         <div id="notif-dropdown" class="notif-dropdown"></div>
                     </div>
-                    <a class="nav-item logout-btn" onclick="logout()"><svg style="width: 24px; height: 24px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg><span>Logout</span></a>
+                    <a class="nav-item logout-btn" onclick="logout()"><svg style="width: 24px; height: 24px;" fill="none; stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg><span>Logout</span></a>
                 ` : `<div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: auto; padding: 0 0.5rem;"><button onclick="loginWithGithub()" class="btn btn-ghost btn-sm" style="width: 100%; justify-content: center;">GitHub</button><button onclick="loginWithGitlab()" class="btn btn-ghost btn-sm" style="width: 100%; justify-content: center;">GitLab</button></div>`}
             </aside>
             <main class="center-feed">${centerContent}</main>
@@ -640,7 +647,7 @@ async function renderCommunities() {
 }
 
 async function renderEvents() {
-    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Events</h1><button onclick="createEvent()" class="btn btn-primary btn-sm" style="margin-left: auto;">+ New Event</button></header><div id="events-list"></div>`, 'events');
+    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Events</h1><button onclick="createNewEvent()" class="btn btn-primary btn-sm" style="margin-left: auto;">+ New Event</button></header><div id="events-list"></div>`, 'events');
     const { data: events, error } = await sb.from('csns_events').select('*').order('event_date', { ascending: true });
     const listEl = document.getElementById('events-list');
     if (error) { listEl.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--accent-danger);">Error loading events: ${error.message}</div>`; return; }
