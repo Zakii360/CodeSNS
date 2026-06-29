@@ -24,7 +24,7 @@ let isLoadingPosts = false;
 let hasMorePosts = true;
 let profileTab = 'posts';
 let settingsTab = 'profile';
-let hasFetchedTrending = false; // Prevent GitHub API rate limits
+let hasFetchedTrending = false;
 
 function updatePostInCache(postId, updateFn) {
     const post = feedCache.find(p => p.id === postId);
@@ -94,7 +94,7 @@ async function fetchDevTip() {
 }
 
 async function fetchTrendingRepos() {
-    if (hasFetchedTrending) return; // Only fetch once per session
+    if (hasFetchedTrending) return;
     hasFetchedTrending = true;
     
     const trendEl = document.getElementById('trending-repos');
@@ -408,7 +408,6 @@ window.confirmVerificationCode = async function() {
     } catch (err) { alert(err.message); btn.innerText = 'Verify'; btn.disabled = false; }
 }
 
-// FIX: Safely handle saving settings when elements might not be in the DOM
 window.saveProfileSettings = async function() {
     const { data, error } = await sb.from('csns_profiles').update({ 
         full_name: document.getElementById('settings-fullname')?.value || currentUser.full_name, 
@@ -460,7 +459,6 @@ async function renderApp() {
     else if (currentView === 'settings') await renderSettings();
     else await renderFeed();
     
-    // Fetch trending repos only on initial load, not every render
     if (!hasFetchedTrending) fetchTrendingRepos();
 }
 
@@ -589,7 +587,7 @@ async function renderFollowing() {
         const { data } = await sb.from('csns_posts').select(`*, csns_profiles:user_id (*), csns_post_repos (*), csns_likes (user_id), csns_reactions (user_id, type), csns_bookmarks (user_id), parent:parent_post_id (*, csns_profiles:user_id (*)), csns_polls (*, csns_poll_votes (user_id, option_index))`).in('user_id', followingIds).order('created_at', { ascending: false });
         posts = data || [];
     }
-    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Following</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('() || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">Feed is empty.</div>'}</div>`, 'following');
+    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Following</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">Feed is empty.</div>'}</div>`, 'following');
     applySyntaxHighlighting();
 }
 
@@ -626,7 +624,7 @@ async function renderMessages() {
             </div>
         </div>`;
     }
-    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Messages</h1></header><div class="chat-layout"><div class="conversation-list">${conversationList.length > 0 ? conversationList.map(c => `<div class="conversation-item ${activeChatUser === c.user.id ? 'active' : ''}" onclick="selectConversation('${c.user.id}')"><img src="${c.user.avatar_url || `https://ui-avatars.com/api/?name=${c.user.username}`}" class="post-avatar" style="width: 40px; height: 40px;"><div style="overflow: hidden;"><div style="font-weight: 700; font-size: 0.9rem;">${c.user.full_name || c.user.username}</div><div style="font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${c.lastMessage.content}</div></div></div>`).join('() : '<div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">No conversations.</div>'}</div>${chatHtml}</div>`, 'messages');
+    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Messages</h1></header><div class="chat-layout"><div class="conversation-list">${conversationList.length > 0 ? conversationList.map(c => `<div class="conversation-item ${activeChatUser === c.user.id ? 'active' : ''}" onclick="selectConversation('${c.user.id}')"><img src="${c.user.avatar_url || `https://ui-avatars.com/api/?name=${c.user.username}`}" class="post-avatar" style="width: 40px; height: 40px;"><div style="overflow: hidden;"><div style="font-weight: 700; font-size: 0.9rem;">${c.user.full_name || c.user.username}</div><div style="font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${c.lastMessage.content}</div></div></div>`).join('') : '<div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">No conversations.</div>'}</div>${chatHtml}</div>`, 'messages');
 }
 
 window.selectConversation = function(userId) { activeChatUser = userId; renderMessages(); }
@@ -851,7 +849,7 @@ function renderPostCard(post) {
                     <div class="post-content">${contentHtml}</div>
                     ${post.image_url ? `<img src="${post.image_url}" class="post-image" alt="Post image">` : ''}
                     ${pollHtml}
-                    ${post.csns_post_repos && post.csns_post_repos.length > 0 ? post.csns_post_repos.map(repo => `<a href="${repo.repo_url}" target="_blank" class="repo-embed" data-owner="${repo.owner}" data-repo="${repo.repo_name}"><div class="repo-embed-content"><div class="repo-embed-header">${repo.platform === 'github' ? `<svg style="width: 20px; height: 20px;" fill="currentColor" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>` : `<svg style="width: 20px; height: 20px;" fill="currentColor" viewBox="0 0 24 24"><path d="M23.955 13.587l-1.347-4.135-2.664-8.197a.455.455 0 00-.867 0L16.413 9.45H7.587L4.923 1.255a.455.455 0 00-.867 0L1.392 9.452.045 13.587a.924.924 0 00.331 1.023L12 23.054l11.624-8.443a.92.92 0 00.331-1.024"/></svg>`} ${repo.owner} / ${repo.repo_name}</div><div class="repo-embed-desc font-mono">${repo.repo_url}</div><div class="repo-stats"><span class="repo-stat">Loading stats...</span></div></div></a>`).join('() : ''}
+                    ${post.csns_post_repos && post.csns_post_repos.length > 0 ? post.csns_post_repos.map(repo => `<a href="${repo.repo_url}" target="_blank" class="repo-embed" data-owner="${repo.owner}" data-repo="${repo.repo_name}"><div class="repo-embed-content"><div class="repo-embed-header">${repo.platform === 'github' ? `<svg style="width: 20px; height: 20px;" fill="currentColor" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>` : `<svg style="width: 20px; height: 20px;" fill="currentColor" viewBox="0 0 24 24"><path d="M23.955 13.587l-1.347-4.135-2.664-8.197a.455.455 0 00-.867 0L16.413 9.45H7.587L4.923 1.255a.455.455 0 00-.867 0L1.392 9.452.045 13.587a.924.924 0 00.331 1.023L12 23.054l11.624-8.443a.92.92 0 00.331-1.024"/></svg>`} ${repo.owner} / ${repo.repo_name}</div><div class="repo-embed-desc font-mono">${repo.repo_url}</div><div class="repo-stats"><span class="repo-stat">Loading stats...</span></div></div></a>`).join('') : ''}
                     <div class="post-actions">
                         <button onclick="toggleComments('${post.id}', '${post.user_id}')" class="action-btn"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg></button>
                         <button onclick="showQuoteModal('${post.id}', false)" class="action-btn"><svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg></button>
