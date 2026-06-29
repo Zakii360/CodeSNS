@@ -443,7 +443,7 @@ window.handleSearchInput = function(e) {
 }
 
 // SETTINGS & PROFILE FUNCTIONS
-window.showVerifyModal = function() { document.getElementById('verify-modal').style.display = 'flex'; }
+window.showVerifyModal = function() { document.getElementById('verify-modal').style.display = 'flex'; document.getElementById('verify-step-1').style.display = 'block'; document.getElementById('verify-step-2').style.display = 'none'; }
 window.closeVerifyModal = function() { document.getElementById('verify-modal').style.display = 'none'; }
 window.sendVerificationCode = async function() {
     const email = document.getElementById('verify-email').value;
@@ -495,15 +495,8 @@ window.saveProfileSettings = async function() {
     renderApp();
 }
 
-window.setProfileTab = function(tab) {
-    profileTab = tab;
-    renderApp();
-}
-
-window.setSettingsTab = function(tab) {
-    settingsTab = tab;
-    renderApp();
-}
+window.setProfileTab = function(tab) { profileTab = tab; renderApp(); }
+window.setSettingsTab = function(tab) { settingsTab = tab; renderApp(); }
 
 window.createCommunity = async function() {
     const name = prompt('Enter community name (e.g., react, rust):');
@@ -679,7 +672,7 @@ async function renderFollowing() {
         const { data } = await sb.from('csns_posts').select(`*, csns_profiles:user_id (*), csns_post_repos (*), csns_likes (user_id), csns_reactions (user_id, type), csns_bookmarks (user_id), parent:parent_post_id (*, csns_profiles:user_id (*)), csns_polls (*, csns_poll_votes (user_id, option_index))`).in('user_id', followingIds).order('created_at', { ascending: false });
         posts = data || [];
     }
-    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Following</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">Feed is empty.</div>'}</div>`, 'following');
+    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Following</h1></header><div id="feed">${posts.map(post => renderPostCard(post)).join('() || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">Feed is empty.</div>'}</div>`, 'following');
     applySyntaxHighlighting();
 }
 
@@ -703,7 +696,7 @@ async function renderMessages() {
         const otherProfile = conversationList.find(c => c.user.id === activeChatUser)?.user || (await sb.from('csns_profiles').select('*').eq('id', activeChatUser).single()).data;
         chatHtml = `<div class="chat-window"><div class="chat-header"><img src="${otherProfile?.avatar_url || `https://ui-avatars.com/api/?name=${otherProfile?.username}`}" class="post-avatar" style="width: 32px; height: 32px;"><span>${otherProfile?.full_name || otherProfile?.username}</span></div><div class="chat-messages">${chatMessages.map(msg => `<div class="message-bubble ${msg.sender_id === currentUser.id ? 'message-sent' : 'message-received'}">${msg.content}</div>`).join('')}</div><div class="chat-input-area"><input id="dm-input" class="chat-input" placeholder="Type a message..." onkeypress="if(event.key==='Enter') sendDm()"><button onclick="sendDm()" class="btn btn-primary btn-sm">Send</button></div></div>`;
     }
-    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Messages</h1></header><div class="chat-layout"><div class="conversation-list">${conversationList.length > 0 ? conversationList.map(c => `<div class="conversation-item ${activeChatUser === c.user.id ? 'active' : ''}" onclick="selectConversation('${c.user.id}')"><img src="${c.user.avatar_url || `https://ui-avatars.com/api/?name=${c.user.username}`}" class="post-avatar" style="width: 40px; height: 40px;"><div style="overflow: hidden;"><div style="font-weight: 700; font-size: 0.9rem;">${c.user.full_name || c.user.username}</div><div style="font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${c.lastMessage.content}</div></div></div>`).join('') : '<div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">No conversations.</div>'}</div>${chatHtml}</div>`, 'messages');
+    app.innerHTML = renderLayout(`<header class="page-header"><h1 class="page-title">Messages</h1></header><div class="chat-layout"><div class="conversation-list">${conversationList.length > 0 ? conversationList.map(c => `<div class="conversation-item ${activeChatUser === c.user.id ? 'active' : ''}" onclick="selectConversation('${c.user.id}')"><img src="${c.user.avatar_url || `https://ui-avatars.com/api/?name=${c.user.username}`}" class="post-avatar" style="width: 40px; height: 40px;"><div style="overflow: hidden;"><div style="font-weight: 700; font-size: 0.9rem;">${c.user.full_name || c.user.username}</div><div style="font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${c.lastMessage.content}</div></div></div>`).join('() : '<div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">No conversations.</div>'}</div>${chatHtml}</div>`, 'messages');
 }
 
 window.selectConversation = function(userId) { activeChatUser = userId; renderMessages(); }
@@ -717,7 +710,7 @@ async function renderCommunities() {
             <div class="community-name">c/${c.name}</div>
             <div style="font-size: 0.9rem; color: var(--text-muted);">${c.description}</div>
         </a>
-    `).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No communities yet.</div>';
+    `).join('() || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No communities yet.</div>';
 }
 
 async function renderEvents() {
@@ -729,7 +722,7 @@ async function renderEvents() {
             <div style="font-size: 0.9rem; color: var(--text-muted);">${new Date(e.event_date).toLocaleString()}</div>
             ${e.description ? `<p style="margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-secondary);">${e.description}</p>` : ''}
         </a>
-    `).join('') || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No events yet.</div>';
+    `).join('() || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No events yet.</div>';
 }
 
 async function renderSettings() {
@@ -824,7 +817,7 @@ async function renderProfile(profileId) {
     
     let tabContent = '';
     if (profileTab === 'posts') {
-        tabContent = (pinnedPosts.length > 0 ? pinnedPosts.map(p => renderPostCard(p)).join(' : '') + posts.map(p => renderPostCard(p)).join('') : '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No posts yet.</div>';
+        tabContent = (pinnedPosts.length > 0 ? pinnedPosts.map(p => renderPostCard(p)).join('') + posts.map(p => renderPostCard(p)).join('() : posts.map(p => renderPostCard(p)).join('() || '<div style="padding: 3rem; text-align: center; color: var(--text-muted);">No posts yet.</div>';
     } else if (profileTab === 'readme') {
         tabContent = `<div style="padding: 2rem; color: var(--text-secondary); line-height: 1.6;">${profile.readme ? profile.readme.replace(/\n/g, '<br>') : 'No readme yet.'}</div>`;
     }
@@ -863,7 +856,7 @@ async function renderProfile(profileId) {
                     <div class="stat-box"><div class="stat-value">${ghFollowers}</div><div class="stat-label">Followers</div></div>
                 </div>
             </div>` : ''}
-            ${metaItems.length > 0 ? `<div class="profile-section"><div class="section-label">Details</div><div class="profile-meta-row" style="border: none; padding: 0; gap: 1rem 1.5rem;">${metaItems.join('')}</div></div>` : ''}
+            ${metaItems.length > 0 ? `<div class="profile-section"><div class="section-label">Details</div><div class="profile-meta-row" style="border: none; padding: 0; gap: 1rem 1.5rem;">${metaItems.join('()}</div></div>` : ''}
         </div>
         <div class="profile-tabs">
             <div class="profile-tab ${profileTab === 'posts' ? 'active' : ''}" onclick="setProfileTab('posts')">Posts</div>
